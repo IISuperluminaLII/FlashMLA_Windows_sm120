@@ -3,25 +3,44 @@
  * Copyright (c) 2024, Tri Dao.
  ******************************************************************************/
 
-#include <torch/python.h>
-#include <torch/nn/functional.h>
+// Minimal torch includes to avoid compiled_autograd.h on MSVC
+#include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAStream.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <torch/types.h>
+#include <torch/library.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+// Critical: provides type_caster<at::Tensor> for pybind11 to convert Python tensors
+#include <torch/csrc/utils/pybind.h>
+
+// Import necessary symbols from torch namespace
+using torch::Tensor;
+using c10::IntArrayRef;
+using c10::ScalarType;
+namespace py = pybind11;
 
 #include <cutlass/fast_math.h>
 
 #include "params.h"
 #include "smxx/get_mla_metadata.h"
 #include "smxx/mla_combine.h"
+
+#ifndef FLASH_MLA_DISABLE_SM90
 #include "sm90/decode/dense/splitkv_mla.h"
 #include "sm90/decode/sparse_fp8/splitkv_mla.h"
 #include "sm90/prefill/sparse/fwd.h"
+#endif
+
+#ifndef FLASH_MLA_DISABLE_SM100
 #include "sm100/decode/sparse_fp8/splitkv_mla.h"
 #include "sm100/prefill/dense/interface.h"
 #include "sm100/prefill/sparse/fwd.h"
+#endif
 
 #define CHECK_DEVICE(x) TORCH_CHECK(x.is_cuda(), #x " must be on CUDA")
-#define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == torch::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
+#define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == c10::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 
 struct Arch {
@@ -36,8 +55,24 @@ struct Arch {
         return major == 10;
     }
 
+    bool is_sm120() const {
+        return major == 12 && minor == 0;
+    }
+
+    bool is_blackwell() const {
+        return is_sm100() || is_sm120();
+    }
+
     void assert_is_supported() const {
-        TORCH_CHECK(is_sm90() || is_sm100(), "Only SM90 and SM100 are supported");
+#if defined(FLASH_MLA_DISABLE_SM90) && defined(FLASH_MLA_DISABLE_SM100)
+        TORCH_CHECK(false, "FlashMLA was compiled without SM90 and SM100 support (likely due to Windows/MSVC compatibility issues). No architectures are available. Please compile on Linux or WSL2 for full support.");
+#elif defined(FLASH_MLA_DISABLE_SM90)
+        TORCH_CHECK(is_sm100() || is_sm120(), "Only SM100/SM120 (Blackwell) is supported in this build. Your GPU architecture sm_", major, minor, " is not supported.");
+#elif defined(FLASH_MLA_DISABLE_SM100)
+        TORCH_CHECK(is_sm90(), "Only SM90 (Hopper) is supported in this build. Your GPU architecture sm_", major, minor, " is not supported.");
+#else
+        TORCH_CHECK(is_sm90() || is_sm100() || is_sm120(), "Only SM90 (Hopper) and SM100/SM120 (Blackwell) are supported. Your GPU architecture sm_", major, minor, " is not supported.");
+#endif
     }
 };
 
@@ -57,6 +92,7 @@ DecodingAttnImplMeta get_attn_impl_meta(
     bool is_fp8_kvcache,
     bool is_sparse_attn
 ) {
+#ifndef FLASH_MLA_DISABLE_SM90
     if (arch.is_sm90()) {
         if (is_sparse_attn) {
             if (is_fp8_kvcache) {
@@ -87,7 +123,10 @@ DecodingAttnImplMeta get_attn_impl_meta(
                 };
             }
         }
-    } else if (arch.is_sm100()) {
+    } else
+#endif
+#ifndef FLASH_MLA_DISABLE_SM100
+    if (arch.is_blackwell()) {
         if (is_sparse_attn) {
             if (is_fp8_kvcache) {
                 TORCH_CHECK(h_q_.has_value());
@@ -102,18 +141,20 @@ DecodingAttnImplMeta get_attn_impl_meta(
                 };
             } else {
                 // Sparse BF16 MLA
-                TORCH_CHECK(false, "Sparse BF16 MLA is not supported on SM100");
+                TORCH_CHECK(false, "Sparse BF16 MLA is not supported on SM100/SM120");
             }
         } else {
             if (is_fp8_kvcache) {
                 // FP8 MLA
-                TORCH_CHECK(false, "FP8 Dence MLA is not supported on SM100");
+                TORCH_CHECK(false, "FP8 Dence MLA is not supported on SM100/SM120");
             } else {
                 // Normal BF16 MLA
-                TORCH_CHECK(false, "BF16 Dence MLA is not supported on SM100");
+                TORCH_CHECK(false, "BF16 Dence MLA is not supported on SM100/SM120");
             }
         }
-    } else {
+    } else
+#endif
+    {
         TORCH_CHECK(false, "Unsupported GPU architecture");
     }
 }
@@ -131,7 +172,7 @@ get_mla_decoding_metadata(
     bool is_sparse_attn = topk.has_value();
     CHECK_DEVICE(seqlens_k);
     TORCH_CHECK(seqlens_k.is_contiguous());
-    TORCH_CHECK(seqlens_k.dtype() == torch::kInt32);
+    TORCH_CHECK(seqlens_k.dtype() == c10::kInt);
     if (is_sparse_attn)
         TORCH_CHECK(h_q.has_value(), "num_heads_q must be provided when topk is provided");
 
@@ -145,8 +186,8 @@ get_mla_decoding_metadata(
     arch.assert_is_supported();
     DecodingAttnImplMeta attn_impl_meta = get_attn_impl_meta(arch, sm_count, num_q_tokens_per_head_k, h_k, h_q, is_fp8_kvcache, is_sparse_attn);
 
-    auto tile_scheduler_metadata = torch::empty({attn_impl_meta.num_sm_parts, TileSchedulerMetaDataSize}, options);
-    auto num_splits = torch::empty({batch_size + 1}, options);
+    auto tile_scheduler_metadata = at::empty({attn_impl_meta.num_sm_parts, TileSchedulerMetaDataSize}, options);
+    auto num_splits = at::empty({batch_size + 1}, options);
     int *tile_scheduler_metadata_ptr = tile_scheduler_metadata.data_ptr<int>();
     int *num_splits_ptr = num_splits.data_ptr<int>();
 
@@ -190,18 +231,18 @@ fwd_kvcache_mla(
 
     // Check data types
     auto q_dtype = q.dtype();
-    TORCH_CHECK(q_dtype == torch::kBFloat16 || q_dtype == torch::kHalf);
+    TORCH_CHECK(q_dtype == c10::kBFloat16 || q_dtype == c10::kHalf);
     
     if (!is_fp8) {
         TORCH_CHECK(kcache.dtype() == q_dtype, "query and key must have the same dtype");
     } else {
-        TORCH_CHECK(kcache.dtype() == torch::kFloat8_e4m3fn || kcache.dtype() == torch::kInt8 || kcache.dtype() == torch::kUInt8, "key must have dtype fp8_e4m3fn or int8 or uint8");
+        TORCH_CHECK(kcache.dtype() == c10::kFloat8_e4m3fn || kcache.dtype() == c10::kChar || kcache.dtype() == c10::kByte, "key must have dtype fp8_e4m3fn or int8 or uint8");
     }
-    TORCH_CHECK(seqlens_k.dtype() == torch::kInt32, "seqlens_k must have dtype int32");
-    TORCH_CHECK(block_table.dtype() == torch::kInt32, "block_table must have dtype torch.int32");
-    TORCH_CHECK(tile_scheduler_metadata.dtype() == torch::kInt32, "tile_scheduler_metadata must have dtype int32");
-    TORCH_CHECK(num_splits.dtype() == torch::kInt32, "num_splits must have dtype int32");
-    TORCH_CHECK(!is_sparse_attn || indices->dtype() == torch::kInt32, "indices must have dtype int32");
+    TORCH_CHECK(seqlens_k.dtype() == c10::kInt, "seqlens_k must have dtype int32");
+    TORCH_CHECK(block_table.dtype() == c10::kInt, "block_table must have dtype torch.int32");
+    TORCH_CHECK(tile_scheduler_metadata.dtype() == c10::kInt, "tile_scheduler_metadata must have dtype int32");
+    TORCH_CHECK(num_splits.dtype() == c10::kInt, "num_splits must have dtype int32");
+    TORCH_CHECK(!is_sparse_attn || indices->dtype() == c10::kInt, "indices must have dtype int32");
 
     // Check device
     CHECK_DEVICE(q);
@@ -263,8 +304,8 @@ fwd_kvcache_mla(
     at::cuda::CUDAGuard device_guard{(char)q.get_device()};
 
     auto opts = q.options();
-    at::Tensor out = torch::empty({batch_size, q_seq_per_hk, num_heads, head_size_v}, opts);
-    at::Tensor softmax_lse = torch::empty({batch_size, num_heads, q_seq_per_hk}, opts.dtype(at::kFloat));
+    at::Tensor out = at::empty({batch_size, q_seq_per_hk, num_heads, head_size_v}, opts);
+    at::Tensor softmax_lse = at::empty({batch_size, num_heads, q_seq_per_hk}, opts.dtype(at::kFloat));
     CHECK_CONTIGUOUS(softmax_lse);
 
     DecodingParams params = {};
@@ -311,8 +352,8 @@ fwd_kvcache_mla(
     params.num_splits_ptr = num_splits.data_ptr<int>();
 
     const int total_num_splits = batch_size + params.num_sm_parts;
-    at::Tensor softmax_lse_accum = torch::empty({total_num_splits, num_heads, q_seq_per_hk}, opts.dtype(at::kFloat));
-    at::Tensor out_accum = torch::empty({total_num_splits, num_heads, q_seq_per_hk, head_size_v}, opts.dtype(at::kFloat));
+    at::Tensor softmax_lse_accum = at::empty({total_num_splits, num_heads, q_seq_per_hk}, opts.dtype(at::kFloat));
+    at::Tensor out_accum = at::empty({total_num_splits, num_heads, q_seq_per_hk, head_size_v}, opts.dtype(at::kFloat));
     CHECK_CONTIGUOUS(softmax_lse_accum);
     CHECK_CONTIGUOUS(out_accum);
     params.total_num_splits = total_num_splits;
@@ -322,16 +363,17 @@ fwd_kvcache_mla(
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     TORCH_CHECK(head_size_k == 576);
 
-    if (q_dtype == torch::kHalf) {
+    if (q_dtype == c10::kHalf) {
 #ifdef FLASH_MLA_DISABLE_FP16
         TORCH_CHECK(false, "FlashMLA is compiled with -DFLASH_MLA_DISABLE_FP16. Please remove this flag from your environment and re-compile FlashMLA.");
 #endif
     }
 
+#ifndef FLASH_MLA_DISABLE_SM90
     if (arch.is_sm90()) {
         if (is_sparse_attn) {
             if (is_fp8) {
-                TORCH_CHECK(q_dtype == torch::kBFloat16, "Sparse FP8 MLA only supports BFloat16 on SM90");
+                TORCH_CHECK(q_dtype == c10::kBFloat16, "Sparse FP8 MLA only supports BFloat16 on SM90");
                 sm90::run_flash_splitkv_mla_fp8_sparse_kernel(params, stream);
             } else {
                 TORCH_CHECK(false, "Only FP8 kvcahe is supported for sparse MLA on SM90");
@@ -340,9 +382,9 @@ fwd_kvcache_mla(
             if (is_fp8) {
                 TORCH_CHECK(false, "Dense FP8 MLA is not supported on SM90");
             } else {
-                if (q_dtype == torch::kBFloat16) {
+                if (q_dtype == c10::kBFloat16) {
                     sm90::run_flash_splitkv_mla_kernel<cutlass::bfloat16_t>(params, stream);
-                } else if (q_dtype == torch::kHalf) {
+                } else if (q_dtype == c10::kHalf) {
 #ifndef FLASH_MLA_DISABLE_FP16
                     sm90::run_flash_splitkv_mla_kernel<cutlass::half_t>(params, stream);
 #endif
@@ -351,16 +393,21 @@ fwd_kvcache_mla(
                 }
             }
         }
-    } else if (arch.is_sm100()) {
-        TORCH_CHECK(is_fp8 && is_sparse_attn, "Only FP8 + Sparse attention is supported on SM100");
+    } else
+#endif
+#ifndef FLASH_MLA_DISABLE_SM100
+    if (arch.is_blackwell()) {
+        TORCH_CHECK(is_fp8 && is_sparse_attn, "Only FP8 + Sparse attention is supported on SM100/SM120");
         sm100::run_flash_splitkv_mla_fp8_sparse_kernel(params, stream);
-    } else {
+    } else
+#endif
+    {
         TORCH_CHECK(false, "Unsupported GPU architecture");
     }
 
-    if (q_dtype == torch::kBFloat16) {
+    if (q_dtype == c10::kBFloat16) {
         run_flash_mla_combine_kernel<cutlass::bfloat16_t>(params, stream);
-    } else if (q_dtype == torch::kHalf) {
+    } else if (q_dtype == c10::kHalf) {
 #ifndef FLASH_MLA_DISABLE_FP16
         run_flash_mla_combine_kernel<cutlass::half_t>(params, stream);
 #endif
@@ -400,9 +447,9 @@ std::vector<at::Tensor> sparse_prefill_fwd(
     CHECK_DEVICE(kv);
     CHECK_DEVICE(indices);
 
-    TORCH_CHECK(q.dtype() == torch::kBFloat16);
-    TORCH_CHECK(kv.dtype() == torch::kBFloat16);
-    TORCH_CHECK(indices.dtype() == torch::kInt32);
+    TORCH_CHECK(q.dtype() == c10::kBFloat16);
+    TORCH_CHECK(kv.dtype() == c10::kBFloat16);
+    TORCH_CHECK(indices.dtype() == c10::kInt);
 
     int s_q = q.size(0);
     int s_kv = kv.size(0);
@@ -421,12 +468,12 @@ std::vector<at::Tensor> sparse_prefill_fwd(
 
     at::cuda::CUDAGuard device_guard{(char)q.get_device()};
     auto opts = q.options();
-    at::Tensor out = torch::empty({s_q, h_q, d_v}, opts);
+    at::Tensor out = at::empty({s_q, h_q, d_v}, opts);
     CHECK_CONTIGUOUS(out);
     
     at::Tensor buf_attn_score, max_logits, lse, p_sum;
-    max_logits = torch::empty({s_q, h_q}, opts.dtype(torch::kFloat));
-    lse = torch::empty({s_q, h_q}, opts.dtype(torch::kFloat));
+    max_logits = at::empty({s_q, h_q}, opts.dtype(at::kFloat));
+    lse = at::empty({s_q, h_q}, opts.dtype(at::kFloat));
     CHECK_CONTIGUOUS(max_logits);
     CHECK_CONTIGUOUS(lse);
 
@@ -449,24 +496,118 @@ std::vector<at::Tensor> sparse_prefill_fwd(
         at::cuda::getCurrentCUDAStream().stream()
     };
 
+#ifndef FLASH_MLA_DISABLE_SM90
     if (is_sm90) {
         sm90::run_fwd_kernel(params);
-    } else if (is_sm100) {
+    } else
+#endif
+#ifndef FLASH_MLA_DISABLE_SM100
+    if (is_sm100) {
         sm100::run_fwd_kernel(params);
-    } else {
-        TORCH_CHECK(false, "Unknown architecture");
+    } else
+#endif
+    {
+        TORCH_CHECK(false, "Unknown architecture or architecture not supported in this build");
     }
 
     return {out, max_logits, lse};
 }
 
+#ifndef FLASH_MLA_DISABLE_SM100
+// Wrapper functions for SM100 dense kernels with explicit Python bindings
+void dense_prefill_fwd_wrapper(
+    at::Tensor workspace_buffer,
+    at::Tensor q,
+    at::Tensor k,
+    at::Tensor v,
+    at::Tensor cumulative_seqlen_q,
+    at::Tensor cumulative_seqlen_kv,
+    at::Tensor o,
+    at::Tensor lse,
+    int mask_mode_code,
+    float softmax_scale,
+    int max_seqlen_q,
+    int max_seqlen_kv,
+    bool is_varlen
+) {
+    FMHACutlassSM100FwdRun(
+        workspace_buffer, q, k, v,
+        cumulative_seqlen_q, cumulative_seqlen_kv,
+        o, lse,
+        mask_mode_code, softmax_scale,
+        max_seqlen_q, max_seqlen_kv, is_varlen
+    );
+}
+
+void dense_prefill_bwd_wrapper(
+    at::Tensor workspace_buffer,
+    at::Tensor d_o,
+    at::Tensor q,
+    at::Tensor k,
+    at::Tensor v,
+    at::Tensor o,
+    at::Tensor lse,
+    at::Tensor cumulative_seqlen_q,
+    at::Tensor cumulative_seqlen_kv,
+    at::Tensor dq,
+    at::Tensor dk,
+    at::Tensor dv,
+    int mask_mode_code,
+    float softmax_scale,
+    int max_seqlen_q,
+    int max_seqlen_kv,
+    bool is_varlen
+) {
+    FMHACutlassSM100BwdRun(
+        workspace_buffer, d_o, q, k, v, o, lse,
+        cumulative_seqlen_q, cumulative_seqlen_kv,
+        dq, dk, dv,
+        mask_mode_code, softmax_scale,
+        max_seqlen_q, max_seqlen_kv, is_varlen
+    );
+}
+#endif
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "FlashMLA";
     m.def("get_mla_decoding_metadata", &get_mla_decoding_metadata);
     m.def("fwd_kvcache_mla", &fwd_kvcache_mla);
-    m.def("dense_prefill_fwd", &FMHACutlassSM100FwdRun);
-    m.def("dense_prefill_bwd", &FMHACutlassSM100BwdRun);
+#ifndef FLASH_MLA_DISABLE_SM100
+    m.def("dense_prefill_fwd", &dense_prefill_fwd_wrapper,
+          py::arg("workspace_buffer"),
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("cumulative_seqlen_q"),
+          py::arg("cumulative_seqlen_kv"),
+          py::arg("o"),
+          py::arg("lse"),
+          py::arg("mask_mode_code"),
+          py::arg("softmax_scale"),
+          py::arg("max_seqlen_q"),
+          py::arg("max_seqlen_kv"),
+          py::arg("is_varlen")
+    );
+    m.def("dense_prefill_bwd", &dense_prefill_bwd_wrapper,
+          py::arg("workspace_buffer"),
+          py::arg("d_o"),
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("o"),
+          py::arg("lse"),
+          py::arg("cumulative_seqlen_q"),
+          py::arg("cumulative_seqlen_kv"),
+          py::arg("dq"),
+          py::arg("dk"),
+          py::arg("dv"),
+          py::arg("mask_mode_code"),
+          py::arg("softmax_scale"),
+          py::arg("max_seqlen_q"),
+          py::arg("max_seqlen_kv"),
+          py::arg("is_varlen")
+    );
+#endif
     m.def("sparse_prefill_fwd", &sparse_prefill_fwd);
 }

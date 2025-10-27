@@ -179,6 +179,100 @@ This kernel implements the standard dense Multi-Head Attention (MHA) forward and
 
 The usage is similar to the `flash_attn` package. See `tests/test_fmha_sm100.py` for a complete example.
 
+## Windows Compilation
+
+This repository includes Windows support with MSVC for NVIDIA Blackwell GPUs (SM100a/SM120).
+
+### Prerequisites
+
+- Windows 10/11
+- CUDA 12.9+
+- PyTorch 2.0+
+- Microsoft Visual Studio 2022 Build Tools
+- Python 3.8+
+
+### Compilation Options
+
+#### Option 1: SM100a Only (B100/B200 Server GPUs - 227KB shared memory)
+
+Build for SM100a server GPUs with full shared memory (227KB):
+
+```bash
+# Clean previous builds
+rm -rf build flash_mla.egg-info
+
+# Set environment variables
+export NVCC_THREADS=32
+export FLASH_MLA_DISABLE_SM90=1
+
+# Build
+python setup.py build_ext --inplace
+```
+
+This build includes:
+- Dense MHA prefill kernels (forward + backward) for training
+- Decode kernels for inference
+- Full SM100a optimization (227KB shared memory)
+
+#### Option 2: SM120 (RTX 6000 Pro / RTX 50 Series - 99KB shared memory)
+
+Build for SM120 workstation GPUs with optimized memory usage (99KB shared memory limit):
+
+```bash
+# Clean previous builds
+rm -rf build flash_mla.egg-info
+
+# Set environment variables
+export NVCC_THREADS=32
+export FLASH_MLA_DISABLE_SM90=1
+export FLASH_MLA_DISABLE_SM100=1
+
+# Build
+python setup.py build_ext --inplace
+```
+
+This build includes **full training support** with the following memory optimizations:
+- **kStages=2** (CUTLASS minimum requirement)
+- **Minimum CUTLASS-compliant tiles**: Q=128, K=128, DQK=16, DVO=16
+- **Buffer sharing**: smem_v union smem_dq (saves ~20KB)
+- **Non-persistent scheduler**: UnionType storage (saves ~16KB)
+- **Reduced pipeline stages**: kStagesReduceTmaStore=1
+
+**Total memory savings**: ~36-40KB from SM100a baseline, fitting within 99KB limit
+
+**Supported GPUs**:
+- NVIDIA RTX 6000 Pro Blackwell Workstation Edition
+- NVIDIA GeForce RTX 5090 / 5080 / 5070 (upcoming)
+
+**What's Included**:
+- Dense MHA prefill kernels (forward + backward) - **FULL TRAINING SUPPORT**
+- All memory-optimized for 99KB shared memory limit
+
+### Verification
+
+Test your build:
+
+```python
+import sys
+sys.path.insert(0, "path/to/FlashMLA")
+import flash_mla
+import torch
+
+# Check CUDA availability
+if torch.cuda.is_available():
+    device = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(device)
+    print(f"GPU: {props.name}")
+    print(f"Compute Capability: {props.major}.{props.minor}")
+    print(f"Shared Memory: {props.shared_memory_per_block / 1024:.0f} KB")
+```
+
+### Key Files Modified for SM120 Support
+
+- `csrc/sm100/prefill/dense/sm100_kernel_traits.hpp` - Added Sm120WorkstationConfig with memory optimizations
+- `csrc/sm100/prefill/dense/kernel/sm100_fmha_bwd_mla_kernel_tma_warpspecialized.hpp` - Implemented buffer sharing (smem_v union smem_dq)
+- `setup.py` - Added conditional compilation for SM100a/SM120 variants
+
 ## Acknowledgement
 
 FlashMLA is inspired by [FlashAttention 2&3](https://github.com/dao-AILab/flash-attention/) and [cutlass](https://github.com/nvidia/cutlass) projects.

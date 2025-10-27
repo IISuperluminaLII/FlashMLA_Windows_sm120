@@ -114,7 +114,13 @@ template<typename T>
 CUTE_DEVICE
 void store_128b(void* smem_ptr, const T &data) {
     static_assert(sizeof(T) == 16);
+#if defined(_MSC_VER)
+    // Windows MSVC doesn't support __int128, use ulonglong2 (2x64-bit) instead
+    auto v128 = *reinterpret_cast<const ulonglong2*>(&data);
+    *reinterpret_cast<ulonglong2*>(smem_ptr) = v128;
+#else
     *(__int128*)smem_ptr = *(__int128*)&data;
+#endif
 }
 
 template<typename TmaParams>

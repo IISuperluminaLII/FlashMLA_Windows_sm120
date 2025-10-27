@@ -28,6 +28,7 @@ struct SM100_MMA_F16BF16_WS_SS_NOELECT
       uint32_t const& scaleC,
       uint64_t const& idescE)
   {
+#if defined(__CUDA_ARCH__)
     asm volatile(
       "{\n\t"
       ".reg .pred p;\n\t"
@@ -36,6 +37,7 @@ struct SM100_MMA_F16BF16_WS_SS_NOELECT
       "}\n"
       :
       : "r"(tmem_c), "l"(desc_a), "l"(desc_b), "r"(uint32_t(idescE>>32)), "r"(scaleC));
+#endif
   }
 };
 
@@ -125,6 +127,7 @@ struct SM100_MMA_F16BF16_WS_TS_NOELECT
       uint32_t const& scaleC,
       uint64_t const& idescE)
   {
+#if defined(__CUDA_ARCH__)
     asm volatile(
       "{\n\t"
       ".reg .pred p;\n\t"
@@ -133,6 +136,7 @@ struct SM100_MMA_F16BF16_WS_TS_NOELECT
       "}\n"
       :
       : "r"(tmem_c), "r"(tmem_a), "l"(desc_b), "r"(uint32_t(idescE>>32)), "r"(scaleC));
+#endif
   }
 };
 

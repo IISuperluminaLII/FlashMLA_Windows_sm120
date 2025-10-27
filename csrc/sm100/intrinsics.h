@@ -32,13 +32,14 @@ template<typename T>
 CUTE_DEVICE
 static void st_async_128b(void* dst_ptr, const T& data, const transac_bar_t* mbar_ptr) {
     static_assert(sizeof(T) == 16, "Data type must be 16 bytes (128 bits) for st_async_128b.");
-    long2 data_long2 = *reinterpret_cast<const long2*>(&data);
+    // Use ulonglong2 (2x64-bit) instead of long2 (2x32-bit on Windows) for 'l' constraint
+    ulonglong2 data_u64x2 = *reinterpret_cast<const ulonglong2*>(&data);
     uint32_t dst_addr = cute::cast_smem_ptr_to_uint(dst_ptr);
     uint32_t mbar_addr = cute::cast_smem_ptr_to_uint(mbar_ptr);
     asm volatile (
         "st.async.weak.shared::cluster.mbarrier::complete_tx::bytes.v2.s64 [%0], {%1, %2}, [%3]; \n"
         :
-        : "r"(dst_addr), "l"(data_long2.x), "l"(data_long2.y), "r"(mbar_addr)
+        : "r"(dst_addr), "l"(data_u64x2.x), "l"(data_u64x2.y), "r"(mbar_addr)
     );
 }
 

@@ -79,7 +79,10 @@ struct Sm100MlaFwdMainloopTmaWarpspecialized {
   static constexpr int StageCountKV = StageCountK + StageCountV;
   // Support StageCountKV > 2 in the future. 
   static_assert(StageCountK == 1 && StageCountV == 1, "Only support StageCountK = StageCountV = 1!");
-  static_assert(std::is_same_v<ThreadShape, Shape<_2, _1, _1>>, "Only support ThreadShape = Shape<_2, _1, _1>");
+  // ThreadShape determines softmax warp organization: Shape<_2, _1, _1> for SM100a (large tiles),
+  // Shape<_1, _1, _1> for SM120 (smaller tiles to avoid M<64 after division)
+  static_assert(std::is_same_v<ThreadShape, Shape<_2, _1, _1>> || std::is_same_v<ThreadShape, Shape<_1, _1, _1>>,
+                "ThreadShape must be Shape<_2, _1, _1> (SM100a) or Shape<_1, _1, _1> (SM120)");
 
   using ClusterShape = Shape<_1, _1, _1>;
 

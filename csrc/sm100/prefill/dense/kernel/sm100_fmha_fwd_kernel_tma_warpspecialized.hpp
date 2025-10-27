@@ -127,6 +127,7 @@ struct Sm100MlaFwdCtxKernelWarpspecializedSchedule {
 };
 
 template<
+  class KernelTraits_,
   class ProblemShapeIn,
   class CollectiveMainloop,
   class CollectiveEpilogue,
@@ -135,6 +136,7 @@ template<
 >
 struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
+  using KernelTraits = KernelTraits_;
   using TileShape = typename CollectiveMainloop::TileShape;
   using ProblemShape = ProblemShapeIn;
 
@@ -202,6 +204,20 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
   static constexpr int SharedStorageSize = sizeof(SharedStorage);
 
+  // Compile-time diagnostic: force emit SharedStorageSize in build output
+  // This template instantiation will fail if uncommented, showing the actual size
+  template<int ActualSize, int Limit>
+  struct SharedMemoryDiagnostic {
+    static_assert(ActualSize <= Limit,
+                  "Forward kernel shared memory diagnostic: check build output for ActualSize and Limit values");
+  };
+  // INSTRUMENTATION DISABLED: Explicit instantiation causes MSVC C4172 error
+  // template struct SharedMemoryDiagnostic<SharedStorageSize, KernelTraits::kSharedMemLimit>;
+
+  // Validate shared memory usage against architecture limit (Blocker 3 fix)
+  static_assert(SharedStorageSize <= KernelTraits::kSharedMemLimit,
+                "Forward kernel shared memory exceeds architecture limit");
+
   struct Arguments {
     ProblemShape problem_shape;
     typename CollectiveMainloop::Arguments mainloop;
@@ -218,7 +234,9 @@ struct Sm100FmhaFwdKernelTmaWarpspecialized {
 
   static const int MinBlocksPerMultiprocessor = 1;
   static const int MaxThreadsPerBlock = NumWarps * cutlass::NumThreadsPerWarp;
-  using ArchTag = cutlass::arch::Sm100;
+
+  // Use trait-supplied ArchTag instead of hardcoded Sm100 (Blocker 2 fix)
+  using ArchTag = typename KernelTraits::ArchTag;
 
   static size_t get_workspace_size(Arguments const& args) { return 0; }
   static cutlass::Status initialize_workspace(Arguments const&, void*, cudaStream_t) {

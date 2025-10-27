@@ -1,11 +1,62 @@
-build
-*.so
+# Python build artifacts
+build/
+dist/
 *.egg-info/
 __pycache__/
-dist/
-*perf.csv
-*.png
-/.vscode
+*.pyc
+*.pyo
+*.pyd
+
+# Compiled extensions
+*.so
+*.dll
+flash_mla/cuda.*.pyd
+
+# Build logs
+*.log
+buildlogs/
+
+# Temporary markdown files (except README)
+*.md
+!README.md
+
+# Test files
+test_*.py
+*_test.py
+
+# Backup and diagnostic files
+*.bak
+*.orig
+*.swp
+*.swo
+*~
+
+# Extract/measurement scripts (temporary)
+extract_*.py
+measure_*.py
+run_*.sh
+
+# IDE and editor files
+.vscode/
+.idea/
+*.iml
+.vs/
 compile_commands.json
 .cache
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Diagnostic infrastructure
+*diagnostic*.py
+*diagnostic*.hpp
+*.sed
+
+# Performance data
+*perf.csv
+*.png
+
+# Dev directory
 /dev

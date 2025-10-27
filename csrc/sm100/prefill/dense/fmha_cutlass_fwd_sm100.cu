@@ -7,6 +7,7 @@
 #include "common/mask.cuh"
 #include "common/utils.hpp"
 
+#include "sm100_kernel_traits.hpp"
 #include "fmha_cutlass_fwd_sm100.cuh"
 
 template <class Mask, class Varlen, class Element, class ElementOut, class Mla>
@@ -23,9 +24,34 @@ void call_run_fmha_fwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
       std::conditional_t<IsCausalMask || (IsVarlen), Option<Tag::kIsPersistent, false_type>,
                          Option<Tag::kIsPersistent, true_type>>;
 
-  run_fmha_fwd<Element, ElementOut, IsVarlen, IsMla, Mask, Option>(
-      workspace_buffer, q, k, v, cumulative_seqlen_q, cumulative_seqlen_kv, o, lse,
-      softmax_scale, max_seqlen_q, max_seqlen_kv);
+  // Dual dispatch: Runtime architecture detection for SM100a (server) vs SM120 (workstation)
+  int device;
+  cudaGetDevice(&device);
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, device);
+  int sm_major = prop.major;
+  int sm_minor = prop.minor;
+  int sm_version = sm_major * 10 + sm_minor;
+
+  // SM100a = compute_100a (10.0), SM120 = compute_120 (12.0)
+  // Runtime guard: Only dispatch if architecture is supported
+  if (sm_version >= 120) {
+    // Workstation variant: SM120 (RTX 6000 Pro, RTX 50 series)
+    run_fmha_fwd<flash::Sm120WorkstationConfig, Element, ElementOut, IsVarlen, IsMla, Mask, Option>(
+        workspace_buffer, q, k, v, cumulative_seqlen_q, cumulative_seqlen_kv, o, lse,
+        softmax_scale, max_seqlen_q, max_seqlen_kv);
+  }
+#ifndef FLASH_MLA_DISABLE_SM100
+  else if (sm_version >= 100) {
+    // Server variant: SM100a (B100/B200)
+    run_fmha_fwd<flash::Sm100ServerConfig, Element, ElementOut, IsVarlen, IsMla, Mask, Option>(
+        workspace_buffer, q, k, v, cumulative_seqlen_q, cumulative_seqlen_kv, o, lse,
+        softmax_scale, max_seqlen_q, max_seqlen_kv);
+  }
+#endif
+  else {
+    FLASH_MLA_ASSERT(false && "Unsupported SM architecture: requires SM100a or SM120");
+  }
 }
 
 void FMHACutlassSM100FwdRun(at::Tensor workspace_buffer, at::Tensor q, at::Tensor k,

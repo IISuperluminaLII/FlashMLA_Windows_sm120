@@ -345,7 +345,7 @@ sparse_attn_fwd_kernel(__grid_constant__ const SparsePrefillParams params, __gri
         if (warpgroup_idx == 0) {
             // Warpgroup 0
 
-            auto pipelined_wait_and_qkt_gemm_l = [&]() __attribute__((always_inline)) {
+            auto pipelined_wait_and_qkt_gemm_l = [&]() {
                 plan.bar_k0_ready[0].wait(cur_bar_wait_phase);
                 qkt_gemm_one_tile(Warpgroup0{}, 0, true);
                 qkt_gemm_one_tile(Warpgroup0{}, 1, false);
@@ -354,7 +354,7 @@ sparse_attn_fwd_kernel(__grid_constant__ const SparsePrefillParams params, __gri
                 warpgroup_commit_batch();
             };
 
-            auto pipelined_wait_and_qkt_gemm_r = [&]() __attribute__((always_inline)) {
+            auto pipelined_wait_and_qkt_gemm_r = [&]() {
                 plan.bar_k0_ready[1].wait(cur_bar_wait_phase);
                 qkt_gemm_one_tile(Warpgroup0{}, 4, false);
                 qkt_gemm_one_tile(Warpgroup0{}, 5, false);
@@ -460,7 +460,7 @@ sparse_attn_fwd_kernel(__grid_constant__ const SparsePrefillParams params, __gri
         } else {
             // Warpgroup 1
 
-            auto pipelined_wait_and_qkt_gemm = [&]() __attribute__((always_inline)) {
+            auto pipelined_wait_and_qkt_gemm = [&]() {
                 plan.bar_k1_ready[1].wait(cur_bar_wait_phase);
                 qkt_gemm_one_tile(Warpgroup1{}, 4, true);
                 qkt_gemm_one_tile(Warpgroup1{}, 5, false);

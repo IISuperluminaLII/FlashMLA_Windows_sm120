@@ -57,16 +57,23 @@ using namespace cutlass;
 
 
 template<
+  class KernelTraits,
   class DType,
   bool kIsVarlen,
   bool kIsMla,
-  class TileShape,
+  class TileShape_,
   class ActiveMask
 >
 struct BwdRunner {
 
   using Element = DType;
   using ElementAccumulator = float;
+
+  // Tile shapes from KernelTraits (architecture-specific)
+  using TileShape = TileShape_;
+
+  // Shared memory limit from traits
+  static constexpr int kSharedMemLimit = KernelTraits::kSharedMemLimit;
 
   // Q K D D_VO (H B)
   using ProblemShape = std::conditional_t<
@@ -75,7 +82,7 @@ struct BwdRunner {
     cute::tuple<int, int, int, int, cute::tuple<int, int>>
   >;
 
-  using Operation = cutlass::fmha::device::Sm100FmhaBwd<ProblemShape, Element, ElementAccumulator, TileShape, kIsMla, ActiveMask>;
+  using Operation = cutlass::fmha::device::Sm100FmhaBwd<KernelTraits, ProblemShape, Element, ElementAccumulator, TileShape, kIsMla, ActiveMask>;
   
   using TensorStride = Stride<int, _1, Stride<int, int>>; 
   using StrideQ = TensorStride;                               // Seq DQK (H B)
@@ -184,13 +191,14 @@ struct BwdRunner {
 };
 
 
-template <typename DType, bool kIsVarlen, bool kIsMla, typename TileShape, typename Mask>
+template <typename KernelTraits, typename DType, bool kIsVarlen, bool kIsMla, typename TileShape,
+          typename Mask>
 void run_fmha_bwd(at::Tensor workspace_buffer, at::Tensor d_o, at::Tensor q, at::Tensor k,
                   at::Tensor v, at::Tensor o, at::Tensor lse,
                   at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv,
                   at::Tensor dq, at::Tensor dk, at::Tensor dv,
                   float softmax_scale, int max_seqlen_q, int total_seqlen_kv) {
-  BwdRunner<DType, kIsVarlen, kIsMla, TileShape, Mask>::run(workspace_buffer, d_o, q, k, v, o, lse,
+  BwdRunner<KernelTraits, DType, kIsVarlen, kIsMla, TileShape, Mask>::run(workspace_buffer, d_o, q, k, v, o, lse,
                                                      cumulative_seqlen_q, cumulative_seqlen_kv,
                                                      dq, dk, dv,
                                                      softmax_scale, max_seqlen_q, total_seqlen_kv);

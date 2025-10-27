@@ -39,8 +39,8 @@ struct MlaOptions {
   int dr = 64;  // headdim rope
 };
 
-template <bool kIsMla, bool kIsMaskTileSchedulerValid, bool kIsVarlen, class Element_,
-          class ElementOut_, class ActiveMask, class... KernelOptions>
+template <class KernelTraits, bool kIsMla, bool kIsMaskTileSchedulerValid, bool kIsVarlen,
+          class Element_, class ElementOut_, class ActiveMask, class... KernelOptions>
 struct FwdRunner {
 
   using Element = Element_;
@@ -48,11 +48,15 @@ struct FwdRunner {
   using ElementAccumulatorPV = float;
   using ElementOut = ElementOut_;
 
-  using HeadDimLatent = _128;
-  using HeadDim = Shape<HeadDimLatent, _64>;
-  using TileShapeMla = Shape<_256, _128, HeadDim>;
-  using TileShapeFmha = Shape<_256, _128, _128>;
+  // Tile shapes from KernelTraits (architecture-specific)
+  using HeadDimLatent = typename KernelTraits::HeadDimLatent;
+  using HeadDim = typename KernelTraits::HeadDim;
+  using TileShapeMla = typename KernelTraits::TileShapeMlaFwd;
+  using TileShapeFmha = typename KernelTraits::TileShapeFmhaFwd;
   using TileShape = std::conditional_t<kIsMla, TileShapeMla, TileShapeFmha>;
+
+  // Shared memory limit from traits
+  static constexpr int kSharedMemLimit = KernelTraits::kSharedMemLimit;
 
   using ProblemShapeRegular = std::conditional_t<
       kIsMla,
@@ -75,8 +79,12 @@ struct FwdRunner {
   using StrideO = StrideQ;
   using StrideLSE = cute::tuple<_1, cute::tuple<cute::tuple<int, int>, int>>;
 
-  static constexpr bool kIsPersistent =
+  // SM120 optimization: Force non-persistent scheduler to save memory
+  // Non-persistent uses UnionType (mainloop/epilogue share memory), saving ~16KB
+  static constexpr bool kIsPersistentOption =
       find_option_t<Tag::kIsPersistent, true_type, KernelOptions...>::value;
+  static constexpr bool kIsPersistent =
+      kIsPersistentOption && !KernelTraits::kForceNonPersistent;
 
   using TileScheduler = std::conditional_t<
       kIsPersistent,
@@ -94,10 +102,11 @@ struct FwdRunner {
 
   using MainloopMla = cutlass::fmha::collective::Sm100MlaFwdMainloopTmaWarpspecialized<
       Element, ElementAccumulatorQK, ElementAccumulatorPV, TileShapeMla, StrideQ, StrideK,
-      StrideV, ActiveMask, Shape<_2, _1, _1>, OrderLoadEpilogue>;
+      StrideV, ActiveMask, typename KernelTraits::ThreadShape, OrderLoadEpilogue>;
 
   using OperationMla =
       cutlass::fmha::device::FMHA<cutlass::fmha::kernel::Sm100FmhaFwdKernelTmaWarpspecialized<
+          KernelTraits,
           ProblemShapeType, MainloopMla,
           cutlass::fmha::collective::Sm100FmhaFwdEpilogueTmaWarpspecialized<
               ElementOut, ElementAccumulatorPV, typename MainloopMla::TileShapePV, StrideO,
@@ -106,10 +115,11 @@ struct FwdRunner {
 
   using MainloopFmha = cutlass::fmha::collective::Sm100FmhaFwdMainloopTmaWarpspecialized<
       Element, ElementAccumulatorQK, ElementAccumulatorPV, TileShapeFmha, StrideQ, StrideK,
-      StrideV, ActiveMask>;
+      StrideV, ActiveMask, typename KernelTraits::ThreadShape>;
 
   using OperationFmha =
       cutlass::fmha::device::FMHA<cutlass::fmha::kernel::Sm100FmhaFwdKernelTmaWarpspecialized<
+          KernelTraits,
           ProblemShapeType, MainloopFmha,
           cutlass::fmha::collective::Sm100FmhaFwdEpilogueTmaWarpspecialized<
               ElementOut, ElementAccumulatorPV, typename MainloopFmha::TileShapePV, StrideO,
@@ -282,8 +292,8 @@ struct FwdRunner {
   }
 };
 
-template <class DTypeIn, class DTypeOut, bool kIsVarlen, bool kIsMla, class ActiveMask,
-          class... KernelOptions>
+template <class KernelTraits, class DTypeIn, class DTypeOut, bool kIsVarlen, bool kIsMla,
+          class ActiveMask, class... KernelOptions>
 void run_fmha_fwd(at::Tensor workspace, at::Tensor q, at::Tensor k, at::Tensor v,
                   at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv, at::Tensor o,
                   at::Tensor lse, float scale_softmax, int max_seqlen_q, int max_seqlen_kv) {
@@ -320,11 +330,11 @@ void run_fmha_fwd(at::Tensor workspace, at::Tensor q, at::Tensor k, at::Tensor v
 
   if (options.h % cutlass::fmha::kernel::CausalIndividualTileScheduler::TileH == 0 &&
       (std::is_same_v<ActiveMask, CausalMask<false>> || std::is_same_v<ActiveMask, CausalMask<true>>)) {
-    FwdRunner<kIsMla, true, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
+    FwdRunner<KernelTraits, kIsMla, true, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
     runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
                cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
   } else {
-    FwdRunner<kIsMla, false, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
+    FwdRunner<KernelTraits, kIsMla, false, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
     runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
                cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
   }

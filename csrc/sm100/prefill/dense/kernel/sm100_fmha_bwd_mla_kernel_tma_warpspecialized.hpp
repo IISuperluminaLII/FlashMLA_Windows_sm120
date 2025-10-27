@@ -53,6 +53,7 @@ using namespace cutlass::fmha::collective;
 using namespace cute;
 
 template<
+    class KernelTraits_,
     class ProblemShape,
     class Element,
     class ElementAcc,
@@ -61,20 +62,29 @@ template<
 >
 struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
 
+  using KernelTraits = KernelTraits_;
+  using ArchTag = typename KernelTraits::ArchTag;  // Architecture tag for variant dispatch
   using TileShapeQ = decltype(get<0>(TileShape{}));
   using TileShapeK = decltype(get<1>(TileShape{}));
   using TileShapeDQK = decltype(get<2>(TileShape{}));
   using TileShapeDVO = decltype(get<3>(TileShape{}));
 
   using TmemAllocator = cute::TMEM::Allocator1Sm;
+
+  // Architecture-specific TMEM allocation for MLA backward pass
   struct TmemAllocation {
-    static constexpr uint32_t kDK = 0;                     // TileShapeK x TileShapeDQK x acc
-    static constexpr uint32_t kDV = kDK + TileShapeDQK{};  // TileShapeK x TileShapeDVO x acc
-    static constexpr uint32_t kDQ = kDV + TileShapeDVO{};  // TileShapeQ x TileShapeDQK x acc
-    static constexpr uint32_t kDP = kDQ;                   // TileShapeK x TileShapeQ   x inp
-    static constexpr uint32_t kS = kDQ + 65536 * 16;
+    static constexpr uint32_t kDK = 0;                                                                         // TileShapeK x TileShapeDQK x acc
+    static constexpr uint32_t kDV = kDK + TileShapeDQK{};                                                      // TileShapeK x TileShapeDVO x acc
+    static constexpr uint32_t kDQ = kDV + TileShapeDVO{};                                                      // TileShapeQ x TileShapeDQK x acc
+    static constexpr uint32_t kDP = kDQ;                                                                       // TileShapeK x TileShapeQ   x inp (reuses DQ)
+
+    // SM120: Aggressive buffer reuse for S/P (reuse DK location)
+    // SM100a: Large offset for optimal multi-CTA pipelining
+    static constexpr uint32_t kS = std::is_same_v<ArchTag, cutlass::arch::Sm120> ?
+                                    kDK :                     // SM120: Reuse DK buffer
+                                    kDQ + 65536 * 16;          // SM100a: Large offset for throughput
     static constexpr uint32_t kP = kS;
-    static constexpr uint32_t kTotal = kDQ + TileShapeDQK{};
+    static constexpr uint32_t kTotal = kDQ + TileShapeDQK{};  // MLA-specific: Total excludes S/P (overlapped)
   };
 
   static_assert(
@@ -109,7 +119,8 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
     static_assert(kWarpgroup0 + 2 * kWarpgroup1 + kWarpgroup2 <= 512);
   };
 
-  using ArchTag = cutlass::arch::Sm100;
+  // Use trait-supplied ArchTag instead of hardcoded Sm100 (Blocker 2 fix)
+  using ArchTag = typename KernelTraits::ArchTag;
 
   using ClusterShape = Shape<_1, _1, _1>;
   using Schedule = cutlass::gemm::KernelTmaWarpSpecialized1SmSm100;
@@ -119,7 +130,7 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
   static constexpr int MaxThreadsPerBlock = NumThreadsPerWarp * kNumWarps;
 
   static constexpr int Alignment = 128 / sizeof_bits_v<Element>;
-  static constexpr int kStages = 2;
+  static constexpr int kStages = KernelTraits::kStages;  // From trait (SM100a=2, SM120=1)
 
   using TensorStrideContiguousK = Stride<int, _1, Stride<int, int>>;
   using TensorStrideContiguousMN = Stride<_1, int, Stride<int, int>>;
@@ -188,7 +199,7 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
   using TiledMmaDSK = typename CollectiveMmaDSK::TiledMma;
 
   // pipelines are named Pipeline<Producer><Consumer><Resource>
-  static constexpr int kStagesComputeSmem = 1;
+  static constexpr int kStagesComputeSmem = KernelTraits::kStagesComputeSmem;  // From trait (both=1)
   using PipelineLoadMmaQ = PipelineTmaUmmaAsync<2, ClusterShape>;
   using PipelineLoadMmaDO = PipelineTmaUmmaAsync<1, ClusterShape>;
   using PipelineLoadComputeLSE = PipelineAsync<1>;
@@ -199,7 +210,7 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
   using PipelineComputeMmaP = PipelineUmmaConsumerAsync<1>;
   using PipelineComputeMmaDS = PipelineUmmaConsumerAsync<kStagesComputeSmem>;
   using PipelineMmaComputeDKDV = PipelineUmmaAsync<2>;
-  static constexpr int kStagesReduceTmaStore = 2;
+  static constexpr int kStagesReduceTmaStore = KernelTraits::kStagesReduceTmaStore;  // From trait (SM100a=2, SM120=1)
   using PipelineReduceTmaStore = PipelineTmaStore<kStagesReduceTmaStore>;
 
   struct PipelineStorage {
@@ -247,7 +258,13 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutK>> smem_k;
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutKT>> smem_k_t;
     };
-    alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutV>> smem_v;
+    // SM120 MEMORY OPTIMIZATION: Union V and DQ buffers (saves ~20KB+)
+    // V is used early (attention forward), DQ is used late (gradient accumulation)
+    // Their lifetimes don't overlap, so they can share the same memory
+    union {
+      alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutV>> smem_v;
+      alignas(1024) cute::array<ElementAcc, cute::cosize_v<SmemLayoutDQ>> smem_dq;
+    };
     union {
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutQ>> smem_q;
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutQT>> smem_q_t;
@@ -264,7 +281,6 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutP>> smem_p;
       alignas(2048) cute::array<Element, cute::cosize_v<SmemLayoutPT>> smem_p_t;
     };
-    alignas(1024) cute::array<ElementAcc, cute::cosize_v<SmemLayoutDQ>> smem_dq;
     alignas(16) cute::array<ElementAcc, cute::cosize_v<SmemLayoutLSE>> smem_lse;
     alignas(16) cute::array<ElementAcc, cute::cosize_v<SmemLayoutSumOdO>> smem_sum_odo;
   };
@@ -283,7 +299,19 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
 
   // this is tight enough that it won't work with sizeof due to padding for alignment
   static constexpr int SharedStorageSize = offsetof(SharedStorage, tmem_base_ptr) + sizeof(uint32_t);
-  static_assert(SharedStorageSize <= cutlass::arch::sm100_smem_capacity_bytes, "using too much smem");
+
+  // Compile-time diagnostic: force emit SharedStorageSize in build output
+  template<int ActualSize, int Limit>
+  struct SharedMemoryDiagnostic {
+    static_assert(ActualSize <= Limit,
+                  "Backward MLA kernel shared memory diagnostic: check build output for ActualSize and Limit values");
+  };
+  // INSTRUMENTATION DISABLED: Explicit instantiation causes MSVC C4172 error
+  // template struct SharedMemoryDiagnostic<SharedStorageSize, KernelTraits::kSharedMemLimit>;
+
+  // Validate shared memory usage against architecture limit (Blocker 3 fix)
+  static_assert(SharedStorageSize <= KernelTraits::kSharedMemLimit,
+                "Backward MLA kernel shared memory exceeds architecture limit");
 
   using TensorStride = TensorStrideContiguousK;  // S D (H B)
   using RowTensorStride = Stride<_1, Stride<int, int>>;    // S (H B)

@@ -52,6 +52,7 @@ namespace cutlass::fmha::device {
 ////////////////////////////////////////////////////////////////////////////////
 
 template<
+    class KernelTraits_,
     class ProblemShape,
     class Element,
     class ElementAccumulator,
@@ -60,6 +61,7 @@ template<
     class Mask
 >
 class Sm100FmhaBwd {
+  using KernelTraits = KernelTraits_;
 public:
   /// Argument structure: User API
   struct Arguments {
@@ -102,12 +104,14 @@ public:
 
   using OperationMha= cutlass::fmha::device::FMHA<
       cutlass::fmha::kernel::Sm100FmhaBwdKernelTmaWarpSpecialized<
+          KernelTraits,
           ProblemShape, Element, ElementAccumulator, TileShape, Mask
       >
   >;
 
   using OperationMla = cutlass::fmha::device::FMHA<
       cutlass::fmha::kernel::Sm100FmhaBwdMlaKernelTmaWarpSpecialized<
+          KernelTraits,
           ProblemShape, Element, ElementAccumulator, TileShape, Mask
       >
   >;

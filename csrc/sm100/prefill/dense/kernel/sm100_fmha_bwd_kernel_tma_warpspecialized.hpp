@@ -53,6 +53,7 @@ using namespace cutlass::fmha::collective;
 using namespace cute;
 
 template<
+    class KernelTraits_,
     class ProblemShape,
     class Element,
     class ElementAcc,
@@ -61,22 +62,37 @@ template<
 >
 struct Sm100FmhaBwdKernelTmaWarpSpecialized {
 
+  using KernelTraits = KernelTraits_;
+  using ArchTag = typename KernelTraits::ArchTag;  // Architecture tag for variant dispatch
   using TileShapeQ = decltype(get<0>(TileShape{}));
-  static_assert(std::is_same_v<TileShapeQ, _128>, "tile shape K must be 128");
+  // SM100a requires Q=128 for optimal TMEM layout, SM120 can use smaller tiles
+  static_assert(std::is_same_v<ArchTag, cutlass::arch::Sm120> || std::is_same_v<TileShapeQ, _128>,
+                "tile shape Q must be 128 for SM100a");
   using TileShapeK = decltype(get<1>(TileShape{}));
   static_assert(std::is_same_v<TileShapeK, _128>, "tile shape K must be 128");
   using TileShapeDQK = decltype(get<2>(TileShape{}));
   using TileShapeDVO = decltype(get<2>(TileShape{}));
 
   using TmemAllocator = cute::TMEM::Allocator1Sm;
+
+  // Architecture-specific TMEM allocation with aggressive buffer sharing for SM120
   struct TmemAllocation {
-    static constexpr uint32_t kDK = 0;                     // TileShapeK x TileShapeDQK x acc
-    static constexpr uint32_t kDV = kDK + TileShapeDQK{};  // TileShapeK x TileShapeDVO x acc
-    static constexpr uint32_t kDQ = kDV + TileShapeDVO{};  // TileShapeQ x TileShapeDQK x acc
-    static constexpr uint32_t kDP = kDQ;                   // TileShapeK x TileShapeQ   x inp
-    static constexpr uint32_t kS = kDQ + max(TileShapeQ{}, TileShapeDQK{});
-    static constexpr uint32_t kP = kS;
-    static constexpr uint32_t kTotal = kS + TileShapeQ{};
+    // SM100a: Conservative layout with minimal buffer sharing (optimized for throughput)
+    // SM120: Aggressive buffer reuse to fit 99KB constraint (optimized for memory)
+    static constexpr uint32_t kDK = 0;                                                                         // TileShapeK x TileShapeDQK x acc
+    static constexpr uint32_t kDV = kDK + TileShapeDQK{};                                                      // TileShapeK x TileShapeDVO x acc
+    static constexpr uint32_t kDQ = kDV + TileShapeDVO{};                                                      // TileShapeQ x TileShapeDQK x acc
+    static constexpr uint32_t kDP = kDQ;                                                                       // TileShapeK x TileShapeQ   x inp (reuses DQ)
+
+    // SM120: Aggressive S/P buffer sharing with DK/DV (non-overlapping usage)
+    // SM100a: Conservative allocation after DQ for better pipelining
+    static constexpr uint32_t kS = std::is_same_v<ArchTag, cutlass::arch::Sm120> ?
+                                    kDK :  // SM120: Reuse DK buffer for S/P (saves ~128 columns)
+                                    kDQ + max(TileShapeQ{}, TileShapeDQK{});  // SM100a: Separate allocation
+    static constexpr uint32_t kP = kS;                                                                         // Reuses S location (both variants)
+    static constexpr uint32_t kTotal = std::is_same_v<ArchTag, cutlass::arch::Sm120> ?
+                                        kDQ + TileShapeQ{} :  // SM120: Reduced footprint
+                                        kS + TileShapeQ{};    // SM100a: Full footprint
   };
 
   static_assert(
@@ -108,7 +124,8 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     static_assert(kWarpgroup0 + 2 * kWarpgroup1 + kWarpgroup2 <= 512);
   };
 
-  using ArchTag = cutlass::arch::Sm100;
+  // Use trait-supplied ArchTag instead of hardcoded Sm100 (Blocker 2 fix)
+  using ArchTag = typename KernelTraits::ArchTag;
 
   using ClusterShape = Shape<_1, _1, _1>;
   using Schedule = cutlass::gemm::KernelTmaWarpSpecialized1SmSm100;
@@ -118,7 +135,7 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
   static constexpr int MaxThreadsPerBlock = NumThreadsPerWarp * kNumWarps;
 
   static constexpr int Alignment = 128 / sizeof_bits_v<Element>;
-  static constexpr int kStages = 2;
+  static constexpr int kStages = KernelTraits::kStages;  // From trait (SM100a=2, SM120=1)
 
   using TensorStrideContiguousK = Stride<int, _1, Stride<int, int>>;
   using TensorStrideContiguousMN = Stride<_1, int, Stride<int, int>>;
@@ -187,7 +204,7 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
   using TiledMmaDSK = typename CollectiveMmaDSK::TiledMma;
 
   // pipelines are named Pipeline<Producer><Consumer><Resource>
-  static constexpr int kStagesComputeSmem = 1;
+  static constexpr int kStagesComputeSmem = KernelTraits::kStagesComputeSmem;  // From trait (both=1)
   using PipelineLoadMmaQ = PipelineTmaUmmaAsync<2, ClusterShape>;
   using PipelineLoadMmaDO = PipelineTmaUmmaAsync<1, ClusterShape>;
   using PipelineLoadComputeLSE = PipelineAsync<1>;
@@ -198,8 +215,23 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
   using PipelineComputeMmaP = PipelineUmmaConsumerAsync<1>;
   using PipelineComputeMmaDS = PipelineUmmaConsumerAsync<kStagesComputeSmem>;
   using PipelineMmaComputeDKDV = PipelineUmmaAsync<2>;
-  static constexpr int kStagesReduceTmaStore = 2;
+  static constexpr int kStagesReduceTmaStore = KernelTraits::kStagesReduceTmaStore;  // From trait (SM100a=2, SM120=1)
   using PipelineReduceTmaStore = PipelineTmaStore<kStagesReduceTmaStore>;
+
+  // MSVC fix: Create type aliases for PipelineState types at class scope
+  // Directly use cutlass::PipelineState instead of extracting from dependent types
+  // This avoids MSVC typename resolution issues in template member function signatures
+  using PipelineLoadMmaQState = cutlass::PipelineState<2>;
+  using PipelineLoadMmaDOState = cutlass::PipelineState<1>;
+  using PipelineLoadComputeLSEState = cutlass::PipelineState<1>;
+  using PipelineLoadComputeSumOdOState = cutlass::PipelineState<1>;
+  using PipelineMmaComputeSState = cutlass::PipelineState<1>;
+  using PipelineMmaComputeDPState = cutlass::PipelineState<1>;
+  using PipelineMmaReduceDQState = cutlass::PipelineState<1>;
+  using PipelineComputeMmaPState = cutlass::PipelineState<1>;
+  using PipelineComputeMmaDSState = cutlass::PipelineState<kStagesComputeSmem>;
+  using PipelineMmaComputeDKDVState = cutlass::PipelineState<2>;
+  using PipelineReduceTmaStoreState = cutlass::PipelineState<kStagesReduceTmaStore>;
 
   struct PipelineStorage {
     alignas(16) typename PipelineLoadMmaQ::SharedStorage load_mma_q;
@@ -276,7 +308,19 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
 
   // this is tight enough that it won't work with sizeof due to padding for alignment
   static constexpr int SharedStorageSize = offsetof(SharedStorage, tmem_base_ptr) + sizeof(uint32_t);
-  static_assert(SharedStorageSize <= cutlass::arch::sm100_smem_capacity_bytes, "using too much smem");
+
+  // Compile-time diagnostic: force emit SharedStorageSize in build output
+  template<int ActualSize, int Limit>
+  struct SharedMemoryDiagnostic {
+    static_assert(ActualSize <= Limit,
+                  "Backward FMHA kernel shared memory diagnostic: check build output for ActualSize and Limit values");
+  };
+  // INSTRUMENTATION DISABLED: Explicit instantiation causes MSVC C4172 error
+  // template struct SharedMemoryDiagnostic<SharedStorageSize, KernelTraits::kSharedMemLimit>;
+
+  // Validate shared memory usage against architecture limit (Blocker 3 fix)
+  static_assert(SharedStorageSize <= KernelTraits::kSharedMemLimit,
+                "Backward FMHA kernel shared memory exceeds architecture limit");
 
   using TensorStride = TensorStrideContiguousK;  // S D (H B)
   using RowTensorStride = Stride<_1, Stride<int, int>>;    // S (H B)
@@ -439,13 +483,13 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       MainloopParams const& mainloop_params,
       TensorStorage& shared_tensors,
       PipelineLoadMmaQ& pipeline_load_mma_q,
-      typename PipelineLoadMmaQ::PipelineState& pipeline_load_mma_q_producer_state,
+      PipelineLoadMmaQState& pipeline_load_mma_q_producer_state,
       PipelineLoadMmaDO& pipeline_load_mma_do,
-      typename PipelineLoadMmaDO::PipelineState& pipeline_load_mma_do_producer_state,
+      PipelineLoadMmaDOState& pipeline_load_mma_do_producer_state,
       PipelineLoadComputeLSE& pipeline_load_compute_lse,
-      typename PipelineLoadComputeLSE::PipelineState& pipeline_load_compute_lse_producer_state,
+      PipelineLoadComputeLSEState& pipeline_load_compute_lse_producer_state,
       PipelineLoadComputeSumOdO& pipeline_load_compute_sum_odo,
-      typename PipelineLoadComputeSumOdO::PipelineState& pipeline_load_compute_sum_odo_producer_state) {
+      PipelineLoadComputeSumOdOState& pipeline_load_compute_sum_odo_producer_state) {
 
     auto [Q, K, D, D_VO, HB] = problem_shape;
 
@@ -666,21 +710,21 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       MainloopArguments const& mainloop_args,
       TensorStorage& shared_tensors,
       PipelineLoadMmaQ& pipeline_load_mma_q,
-      typename PipelineLoadMmaQ::PipelineState& pipeline_load_mma_q_consumer_state,
+      PipelineLoadMmaQState& pipeline_load_mma_q_consumer_state,
       PipelineLoadMmaDO& pipeline_load_mma_do,
-      typename PipelineLoadMmaDO::PipelineState& pipeline_load_mma_do_consumer_state,
+      PipelineLoadMmaDOState& pipeline_load_mma_do_consumer_state,
       PipelineMmaComputeS& pipeline_mma_compute_s,
-      typename PipelineMmaComputeS::PipelineState& pipeline_mma_compute_s_producer_state,
+      PipelineMmaComputeSState& pipeline_mma_compute_s_producer_state,
       PipelineMmaComputeDP& pipeline_mma_compute_dp,
-      typename PipelineMmaComputeDP::PipelineState& pipeline_mma_compute_dp_producer_state,
+      PipelineMmaComputeDPState& pipeline_mma_compute_dp_producer_state,
       PipelineMmaReduceDQ& pipeline_mma_reduce_dq,
-      typename PipelineMmaReduceDQ::PipelineState& pipeline_mma_reduce_dq_producer_state,
+      PipelineMmaReduceDQState& pipeline_mma_reduce_dq_producer_state,
       PipelineComputeMmaP& pipeline_compute_mma_p,
-      typename PipelineComputeMmaP::PipelineState& pipeline_compute_mma_p_consumer_state,
+      PipelineComputeMmaPState& pipeline_compute_mma_p_consumer_state,
       PipelineComputeMmaDS& pipeline_compute_mma_ds,
-      typename PipelineComputeMmaDS::PipelineState& pipeline_compute_mma_ds_consumer_state,
+      PipelineComputeMmaDSState& pipeline_compute_mma_ds_consumer_state,
       PipelineMmaComputeDKDV& pipeline_mma_compute_dkdv,
-      typename PipelineMmaComputeDKDV::PipelineState& pipeline_mma_compute_dkdv_producer_state) {
+      PipelineMmaComputeDKDVState& pipeline_mma_compute_dkdv_producer_state) {
 
     auto [Q, K, D, D_VO, HB] = problem_shape;
 
@@ -1032,7 +1076,7 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       MainloopArguments const& mainloop_args,
       EpilogueArguments const& epilogue_args,
       PipelineMmaComputeDKDV& pipeline_mma_compute_dkdv,
-      typename PipelineMmaComputeDKDV::PipelineState& pipeline_mma_compute_dkdv_consumer_state) {
+      PipelineMmaComputeDKDVState& pipeline_mma_compute_dkdv_consumer_state) {
 
     auto [Q, K, D, D_VO, HB] = problem_shape;
     auto [blk_coord_q, blk_coord_k, blk_coord_d, blk_coord_dv, blk_coord_batch] = blk_coord;
@@ -1139,19 +1183,19 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       EpilogueArguments const& epilogue_args,
       TensorStorage& shared_tensors,
       PipelineLoadComputeLSE& pipeline_load_compute_lse,
-      typename PipelineLoadComputeLSE::PipelineState& pipeline_load_compute_lse_consumer_state,
+      PipelineLoadComputeLSEState& pipeline_load_compute_lse_consumer_state,
       PipelineLoadComputeSumOdO& pipeline_load_compute_sum_odo,
-      typename PipelineLoadComputeSumOdO::PipelineState& pipeline_load_compute_sum_odo_consumer_state,
+      PipelineLoadComputeSumOdOState& pipeline_load_compute_sum_odo_consumer_state,
       PipelineMmaComputeS& pipeline_mma_compute_s,
-      typename PipelineMmaComputeS::PipelineState& pipeline_mma_compute_s_consumer_state,
+      PipelineMmaComputeSState& pipeline_mma_compute_s_consumer_state,
       PipelineMmaComputeDP& pipeline_mma_compute_dp,
-      typename PipelineMmaComputeDP::PipelineState& pipeline_mma_compute_dp_consumer_state,
+      PipelineMmaComputeDPState& pipeline_mma_compute_dp_consumer_state,
       PipelineComputeMmaP& pipeline_compute_mma_p,
-      typename PipelineComputeMmaP::PipelineState& pipeline_compute_mma_p_producer_state,
+      PipelineComputeMmaPState& pipeline_compute_mma_p_producer_state,
       PipelineComputeMmaDS& pipeline_compute_mma_ds,
-      typename PipelineComputeMmaDS::PipelineState& pipeline_compute_mma_ds_producer_state,
+      PipelineComputeMmaDSState& pipeline_compute_mma_ds_producer_state,
       PipelineMmaComputeDKDV& pipeline_mma_compute_dkdv,
-      typename PipelineMmaComputeDKDV::PipelineState& pipeline_mma_compute_dkdv_consumer_state) {
+      PipelineMmaComputeDKDVState& pipeline_mma_compute_dkdv_consumer_state) {
 
 
     auto [Q, K, D, D_VO, HB] = problem_shape;
@@ -1411,9 +1455,9 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
       MainloopParams const& mainloop_params,
       TensorStorage& shared_tensors,
       PipelineMmaReduceDQ& pipeline_mma_reduce_dq,
-      typename PipelineMmaReduceDQ::PipelineState& pipeline_mma_reduce_dq_consumer_state,
+      PipelineMmaReduceDQState& pipeline_mma_reduce_dq_consumer_state,
       PipelineReduceTmaStore& pipeline_reduce_tma_store,
-      typename PipelineReduceTmaStore::PipelineState& pipeline_reduce_tma_store_producer_state) {
+      PipelineReduceTmaStoreState& pipeline_reduce_tma_store_producer_state) {
 
     using X = Underscore;
 
@@ -1673,16 +1717,16 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
     pipeline_compute_mma_ds.init_masks(ClusterShape{});
     pipeline_mma_compute_dkdv.init_masks(ClusterShape{});
 
-    typename decltype(pipeline_load_mma_q)::PipelineState pipeline_load_mma_q_consumer_state;
-    typename decltype(pipeline_load_mma_do)::PipelineState pipeline_load_mma_do_consumer_state;
-    typename decltype(pipeline_load_compute_lse)::PipelineState pipeline_load_compute_lse_consumer_state;
-    typename decltype(pipeline_load_compute_sum_odo)::PipelineState pipeline_load_compute_sum_odo_consumer_state;
-    typename decltype(pipeline_mma_compute_s)::PipelineState pipeline_mma_compute_s_consumer_state;
-    typename decltype(pipeline_mma_compute_dp)::PipelineState pipeline_mma_compute_dp_consumer_state;
-    typename decltype(pipeline_mma_reduce_dq)::PipelineState pipeline_mma_reduce_dq_consumer_state;
-    typename decltype(pipeline_compute_mma_p)::PipelineState pipeline_compute_mma_p_consumer_state;
-    typename decltype(pipeline_compute_mma_ds)::PipelineState pipeline_compute_mma_ds_consumer_state;
-    typename decltype(pipeline_mma_compute_dkdv)::PipelineState pipeline_mma_compute_dkdv_consumer_state;
+    PipelineLoadMmaQState pipeline_load_mma_q_consumer_state;
+    PipelineLoadMmaDOState pipeline_load_mma_do_consumer_state;
+    PipelineLoadComputeLSEState pipeline_load_compute_lse_consumer_state;
+    PipelineLoadComputeSumOdOState pipeline_load_compute_sum_odo_consumer_state;
+    PipelineMmaComputeSState pipeline_mma_compute_s_consumer_state;
+    PipelineMmaComputeDPState pipeline_mma_compute_dp_consumer_state;
+    PipelineMmaReduceDQState pipeline_mma_reduce_dq_consumer_state;
+    PipelineComputeMmaPState pipeline_compute_mma_p_consumer_state;
+    PipelineComputeMmaDSState pipeline_compute_mma_ds_consumer_state;
+    PipelineMmaComputeDKDVState pipeline_mma_compute_dkdv_consumer_state;
 
     auto pipeline_load_mma_q_producer_state = make_producer_start_state<decltype(pipeline_load_mma_q)>();
     auto pipeline_load_mma_do_producer_state = make_producer_start_state<decltype(pipeline_load_mma_do)>();
