@@ -51,18 +51,18 @@ It achieves up to 640 TFlops in forward computation on H800 SXM5 with CUDA 12.8,
 
 ## Requirements
 
-- SM90 / SM100 (See the support matrix below)
-- CUDA 12.8 and above (CUDA 12.9+ is required for SM100 kernels)
+- SM90 / SM100 / SM120 (See the support matrix below)
+- CUDA 12.8 and above (CUDA 12.9+ is required for SM100/SM120 kernels)
 - PyTorch 2.0 and above
 
 Support matrix:
 
 | Kernel | GPU Architecture | MLA Mode [2] | KVCache Format |
 | :---: | :---: | :---: | :---: |
-| Dense Decoding | SM90 | MQA | BF16 |
+| Dense Decoding | SM90 & SM120 | MQA | BF16 |
 | Sparse Decoding | SM90 & SM100 | MQA | FP8 [1] |
-| Dense Prefill | SM100 | MHA |  |
-| Sparse Prefill | SM90 & SM100 | MQA |  |
+| Dense Prefill | SM100 & SM120 | MHA |  |
+| Sparse Prefill | SM90 & SM100 & SM120 | MQA |  |
 
 [1]: For more details on using FP8 KV cache, see documents below.
 
