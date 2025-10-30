@@ -33,9 +33,11 @@ namespace py = pybind11;
 #include "sm90/prefill/sparse/fwd.h"
 #endif
 
+// Dense prefill interface supports BOTH SM100a and SM120
+#include "sm100/prefill/dense/interface.h"
+
 #ifndef FLASH_MLA_DISABLE_SM100
 #include "sm100/decode/sparse_fp8/splitkv_mla.h"
-#include "sm100/prefill/dense/interface.h"
 #include "sm100/prefill/sparse/fwd.h"
 #endif
 
@@ -513,8 +515,7 @@ std::vector<at::Tensor> sparse_prefill_fwd(
     return {out, max_logits, lse};
 }
 
-#ifndef FLASH_MLA_DISABLE_SM100
-// Wrapper functions for SM100 dense kernels with explicit Python bindings
+// Wrapper functions for dense kernels (support SM100a + SM120) with explicit Python bindings
 void dense_prefill_fwd_wrapper(
     at::Tensor workspace_buffer,
     at::Tensor q,
@@ -566,14 +567,13 @@ void dense_prefill_bwd_wrapper(
         max_seqlen_q, max_seqlen_kv, is_varlen
     );
 }
-#endif
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "FlashMLA";
     m.def("get_mla_decoding_metadata", &get_mla_decoding_metadata);
     m.def("fwd_kvcache_mla", &fwd_kvcache_mla);
-#ifndef FLASH_MLA_DISABLE_SM100
+    // Dense prefill kernels support BOTH SM100a and SM120
     m.def("dense_prefill_fwd", &dense_prefill_fwd_wrapper,
           py::arg("workspace_buffer"),
           py::arg("q"),
@@ -608,6 +608,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("max_seqlen_kv"),
           py::arg("is_varlen")
     );
-#endif
     m.def("sparse_prefill_fwd", &sparse_prefill_fwd);
 }
