@@ -14,11 +14,14 @@ flash_mla/cuda.*.pyd
 
 # Build logs
 *.log
+build*.txt
+build*.bat
 buildlogs/
 
-# Temporary markdown files (except README)
+# Temporary markdown files (except README and build guides)
 *.md
 !README.md
+!WINDOWS_SM120_BUILD_GUIDE.md
 
 # Test files
 test_*.py
