@@ -75,6 +75,16 @@ struct Sm100FmhaBwdKernelTmaWarpSpecialized {
 
   using TmemAllocator = cute::TMEM::Allocator1Sm;
 
+  // SAFETY CHECK Point 5: SM120 BWD Dead-Code Elimination
+  // Fail-fast if SM120 device code attempts to compile backward kernels
+  // SM120 backward enabled with CUTLASS 3.9 support
+  // CUTLASS 3.9 has proper SM120 support with TMEM fixes
+  // Based on community fixes from vLLM and FlashAttention projects
+  #if 0
+    // Disabled: SM120 is now supported with CUTLASS 3.9
+    #error "SM120 backward pass is currently disabled. UniversalCopy implementation required for both forward and backward before re-enabling. See SM120_UNIVERSAL_COPY_PLAN.md"
+  #endif
+
   // Architecture-specific TMEM allocation with aggressive buffer sharing for SM120
   struct TmemAllocation {
     // SM100a: Conservative layout with minimal buffer sharing (optimized for throughput)

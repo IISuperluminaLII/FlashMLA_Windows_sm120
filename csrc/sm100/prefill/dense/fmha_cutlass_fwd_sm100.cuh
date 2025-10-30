@@ -11,6 +11,7 @@
 #include "kernel/fmha_options.hpp"
 #include "kernel/fmha_tile_scheduler.hpp"
 #include "kernel/sm100_fmha_fwd_kernel_tma_warpspecialized.hpp"
+#include "sm120_fallback_utils.h"
 
 #include <torch/library.h>
 #include <c10/cuda/CUDAStream.h>
@@ -19,7 +20,6 @@ using namespace cute;
 using namespace cutlass::fmha::collective;
 using namespace cutlass::fmha::kernel;
 using namespace cutlass::fmha::device;
-
 struct FmhaOptions {
   int b = 1;
   int h = 1;
@@ -100,10 +100,17 @@ struct FwdRunner {
       kIsPersistent && (sizeof(Element) == sizeof(ElementOut));
   using OrderLoadEpilogue = std::conditional_t<IsOrderLoadEpilogue, true_type, false_type>;
 
+  // Use TMA mainloops for both SM100a and SM120
+  // SM120 will use the same mainloops but with adjusted configurations in kernel traits
   using MainloopMla = cutlass::fmha::collective::Sm100MlaFwdMainloopTmaWarpspecialized<
       Element, ElementAccumulatorQK, ElementAccumulatorPV, TileShapeMla, StrideQ, StrideK,
       StrideV, ActiveMask, typename KernelTraits::ThreadShape, OrderLoadEpilogue>;
 
+  using MainloopFmha = cutlass::fmha::collective::Sm100FmhaFwdMainloopTmaWarpspecialized<
+      Element, ElementAccumulatorQK, ElementAccumulatorPV, TileShapeFmha, StrideQ, StrideK,
+      StrideV, ActiveMask, typename KernelTraits::ThreadShape>;
+
+  // Operations remain the same, using selected mainloop
   using OperationMla =
       cutlass::fmha::device::FMHA<cutlass::fmha::kernel::Sm100FmhaFwdKernelTmaWarpspecialized<
           KernelTraits,
@@ -112,10 +119,6 @@ struct FwdRunner {
               ElementOut, ElementAccumulatorPV, typename MainloopMla::TileShapePV, StrideO,
               StrideLSE, OrderLoadEpilogue>,
           TileScheduler, cutlass::fmha::kernel::Sm100MlaFwdCtxKernelWarpspecializedSchedule>>;
-
-  using MainloopFmha = cutlass::fmha::collective::Sm100FmhaFwdMainloopTmaWarpspecialized<
-      Element, ElementAccumulatorQK, ElementAccumulatorPV, TileShapeFmha, StrideQ, StrideK,
-      StrideV, ActiveMask, typename KernelTraits::ThreadShape>;
 
   using OperationFmha =
       cutlass::fmha::device::FMHA<cutlass::fmha::kernel::Sm100FmhaFwdKernelTmaWarpspecialized<
@@ -298,44 +301,64 @@ void run_fmha_fwd(at::Tensor workspace, at::Tensor q, at::Tensor k, at::Tensor v
                   at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv, at::Tensor o,
                   at::Tensor lse, float scale_softmax, int max_seqlen_q, int max_seqlen_kv) {
 
-  cutlass::KernelHardwareInfo hw_info;
-  hw_info.device_id = 0;
-  hw_info.sm_count =
-      cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
-
-  auto get_options = [&]() {
-    if constexpr (kIsMla) {
-      MlaOptions options;
-      options.b = cumulative_seqlen_q.size(0) - 1;
-      options.h = q.size(1);
-      options.h_k = k.size(1);
-      options.q = q.size(0) / options.b;
-      options.k = k.size(0) / options.b;
-      options.dl = v.size(-1);
-      options.dr = q.size(-1) - v.size(-1);
-      return options;
-    } else {
-      FmhaOptions options;
-      options.b = cumulative_seqlen_q.size(0) - 1;
-      options.h = q.size(1);
-      options.h_k = k.size(1);
-      options.q = q.size(0) / options.b;
-      options.k = k.size(0) / options.b;
-      options.d = q.size(-1);
-      return options;
-    }
-  };
-
-  auto options = get_options();
-
-  if (options.h % cutlass::fmha::kernel::CausalIndividualTileScheduler::TileH == 0 &&
-      (std::is_same_v<ActiveMask, CausalMask<false>> || std::is_same_v<ActiveMask, CausalMask<true>>)) {
-    FwdRunner<KernelTraits, kIsMla, true, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
-    runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
-               cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
+  if constexpr (std::is_same_v<typename KernelTraits::ArchTag, cutlass::arch::Sm120>) {
+    const auto stream = c10::cuda::getCurrentCUDAStream();
+    flash::detail::run_fmha_fwd_sm120_fallback<kIsVarlen, kIsMla, ActiveMask>(
+        stream,
+        q.scalar_type(),
+        o.scalar_type(),
+        q,
+        k,
+        v,
+        o,
+        lse,
+        scale_softmax,
+        cumulative_seqlen_q,
+        cumulative_seqlen_kv,
+        max_seqlen_q,
+        max_seqlen_kv);
+    return;
   } else {
-    FwdRunner<KernelTraits, kIsMla, false, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
-    runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
-               cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
+    cutlass::KernelHardwareInfo hw_info;
+    hw_info.device_id = 0;
+    hw_info.sm_count =
+        cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
+
+    auto get_options = [&]() {
+      if constexpr (kIsMla) {
+        MlaOptions options;
+        options.b = cumulative_seqlen_q.size(0) - 1;
+        options.h = q.size(1);
+        options.h_k = k.size(1);
+        options.q = q.size(0) / options.b;
+        options.k = k.size(0) / options.b;
+        options.dl = v.size(-1);
+        options.dr = q.size(-1) - v.size(-1);
+        return options;
+      } else {
+        FmhaOptions options;
+        options.b = cumulative_seqlen_q.size(0) - 1;
+        options.h = q.size(1);
+        options.h_k = k.size(1);
+        options.q = q.size(0) / options.b;
+        options.k = k.size(0) / options.b;
+        options.d = q.size(-1);
+        return options;
+      }
+    };
+
+    auto options = get_options();
+
+    if (options.h % cutlass::fmha::kernel::CausalIndividualTileScheduler::TileH == 0 &&
+        (std::is_same_v<ActiveMask, CausalMask<false>> ||
+         std::is_same_v<ActiveMask, CausalMask<true>>)) {
+      FwdRunner<KernelTraits, kIsMla, true, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
+      runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
+                 cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
+    } else {
+      FwdRunner<KernelTraits, kIsMla, false, kIsVarlen, DTypeIn, DTypeOut, ActiveMask, KernelOptions...> runner;
+      runner.run(options, hw_info, q, k, v, o, lse, scale_softmax, workspace, cumulative_seqlen_q,
+                 cumulative_seqlen_kv, max_seqlen_q, max_seqlen_kv);
+    }
   }
 }

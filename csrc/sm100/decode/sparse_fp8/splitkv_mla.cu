@@ -5,6 +5,8 @@
 #include <cutlass/arch/reg_reconfig.h>
 #include <cute/tensor.hpp>
 #include <cute/arch/tmem_allocator_sm100.hpp>
+#include <math_constants.h>   // CUDART_INF_F
+#include <cmath>              // isnan, isinf
 
 #include "utils.h"
 #include "dequant.h"
@@ -293,10 +295,10 @@ flash_fwd_splitkv_mla_fp8_sparse_kernel(__grid_constant__ const DecodingParams p
                 cutlass::arch::fence_view_async_tmem_load();
 
                 // Get rowwise max
-                float cur_max = -INFINITY;
+                float cur_max = -CUDART_INF_F;
                 CUTE_UNROLL
                 for (int i = 0; i < B_TOPK/2; ++i) {
-                    if (!plan.is_token_valid[buf_idx][(idx_in_warpgroup/64)*(B_TOPK/2)+i]) p[i] = -INFINITY;
+                    if (!plan.is_token_valid[buf_idx][(idx_in_warpgroup/64)*(B_TOPK/2)+i]) p[i] = -CUDART_INF_F;
                     cur_max = max(cur_max, p[i]);
                 }
                 cur_max *= params.scale_softmax_log2;
@@ -361,7 +363,7 @@ flash_fwd_splitkv_mla_fp8_sparse_kernel(__grid_constant__ const DecodingParams p
 
             // Deal with no valid token cases
             if (mi == MAX_INIT_VAL) {
-                mi = -INFINITY;
+                mi = -CUDART_INF_F;
                 li = 0.0f;
             }
 
@@ -378,10 +380,10 @@ flash_fwd_splitkv_mla_fp8_sparse_kernel(__grid_constant__ const DecodingParams p
             if (idx_in_warpgroup < num_valid_heads) {
                 if (is_no_split) {
                     float* gSoftmaxLse = (float*)params.softmax_lse_ptr + batch_idx*params.q_seq_per_hk + start_seq_idx + idx_in_warpgroup;
-                    *gSoftmaxLse = li == 0.0f ? INFINITY : logf(li) + mi / (float)M_LOG2E; // NOTE Follows Flash MLA's approach, which returns +inf when there are no valid indices
+                    *gSoftmaxLse = li == 0.0f ? CUDART_INF_F : logf(li) + mi / (float)M_LOG2E; // NOTE Follows Flash MLA's approach, which returns +inf when there are no valid indices
                 } else {
                     float* gSoftmaxLseAccum = (float*)params.softmax_lseaccum_ptr + split_idx*params.q_seq_per_hk + start_seq_idx + idx_in_warpgroup;
-                    *gSoftmaxLseAccum = li == 0.0f ? -INFINITY : log2f(li) + mi;
+                    *gSoftmaxLseAccum = li == 0.0f ? -CUDART_INF_F : log2f(li) + mi;
                 }
             }
 

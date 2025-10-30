@@ -4,6 +4,67 @@ import torch
 
 import flash_mla.cuda as flash_mla_cuda
 
+
+def _legacy_flash_mla_fwd(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    kv_cache: Optional[torch.Tensor] = None,
+    k_new: Optional[torch.Tensor] = None,
+    v_new: Optional[torch.Tensor] = None,
+    cu_seqlens: Optional[torch.Tensor] = None,
+    max_seqlen: Optional[int] = None,
+    softmax_scale: Optional[float] = None,
+    causal: bool = False,
+) -> torch.Tensor:
+    if kv_cache is not None or k_new is not None or v_new is not None:
+        raise NotImplementedError("KV cache updates are not supported in the SM120 fallback build.")
+
+    batch_size, seqlen, num_heads_q, head_dim_qk = q.shape
+    num_heads_k = k.shape[2]
+    head_dim_v = v.shape[-1]
+
+    if cu_seqlens is None:
+        cu_seqlens = torch.arange(
+            0,
+            (batch_size + 1) * seqlen,
+            seqlen,
+            device=q.device,
+            dtype=torch.int32,
+        )
+        is_varlen = False
+    else:
+        cu_seqlens = cu_seqlens.to(device=q.device, dtype=torch.int32, non_blocking=True)
+        is_varlen = True
+
+    if max_seqlen is None:
+        # Default to the maximum span in cu_seqlens when not provided
+        spans = torch.diff(cu_seqlens)
+        max_seqlen = int(spans.max().item())
+
+    if k.size(0) != q.size(0) or k.size(1) != q.size(1):
+        raise NotImplementedError("GQA with differing sequence lengths is not supported in the fallback path.")
+
+    q_varlen = q.reshape(-1, num_heads_q, head_dim_qk)
+    k_varlen = k.reshape(-1, num_heads_k, head_dim_qk)
+    v_varlen = v.reshape(-1, num_heads_k, head_dim_v)
+
+    out_varlen, _ = flash_attn_varlen_func(
+        q_varlen,
+        k_varlen,
+        v_varlen,
+        cu_seqlens,
+        cu_seqlens,
+        max_seqlen,
+        max_seqlen,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        is_varlen=is_varlen,
+    )
+
+    out = out_varlen.reshape(batch_size, seqlen, num_heads_q, head_dim_v)
+    return out
+
 def get_mla_metadata(
     cache_seqlens: torch.Tensor,
     num_q_tokens_per_head_k: int,
@@ -331,3 +392,7 @@ def flash_attn_varlen_kvpacked_func(
         cu_seqlens_qo, cu_seqlens_kv, max_seqlen_qo, max_seqlen_kv,
         causal, softmax_scale, is_varlen,
     )
+
+
+if not hasattr(flash_mla_cuda, "fwd"):
+    flash_mla_cuda.fwd = _legacy_flash_mla_fwd

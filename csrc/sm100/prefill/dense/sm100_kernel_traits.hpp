@@ -26,8 +26,8 @@ struct Sm100ServerConfig {
   using TileShapeFmhaFwd = Shape<_256, _128, _128>;        // <M=256, N=128, K=128>
 
   // Backward kernel tile shapes (current production config)
-  using TileShapeMlaBwd = Shape<_64, _128, _192, _128>;    // <Q=64, K=128, DQK=192, DVO=128>
-  using TileShapeFmhaBwd = Shape<_128, _128, _128, _128>;  // <Q=128, K=128, DQK=128, DVO=128>
+  using TileShapeMlaBwd = Shape<_64, _128, _192, _128>;
+  using TileShapeFmhaBwd = Shape<_128, _128, _128, _128>;
 
   // Pipeline stage counts (server-optimized for 227KB shared memory)
   static constexpr int kStages = 2;                // TMA load stages for collectives
@@ -47,8 +47,6 @@ struct Sm100ServerConfig {
 // - 101,376 bytes (~99 KB) shared memory - 56% of SM100a capacity
 // - No TMA multicast (cluster must be 1x1x1)
 // - ITERATION 1: Aggressive tile reductions to fit 99KB budget
-//   * Forward: M=64, N=32 (75% reduction from SM100a: 256→64, 128→32)
-//   * Backward: DQK/DVO reduced to minimize shared memory
 // - CUTLASS constraints:
 //   * M ∈ {64, 128} (csrc/cutlass/include/cutlass/gemm/collective/builders/sm100_common.inl:309)
 //   * N must be multiple of 8, ≤ 256 (sm100_common.inl:313)
@@ -58,21 +56,17 @@ struct Sm120WorkstationConfig {
   using ArchTag = cutlass::arch::Sm120;
   static constexpr int kSharedMemLimit = 101376;  // ~99 KB
 
-  // Forward kernel tiles - Respecting CUTLASS M≥64 constraint
-  // M: 256→128→64 (minimum viable value respecting CUTLASS constraint)
-  // N: 128→64 (50% reduction, respects CUTLASS internal decomposition limits)
+  // Forward kernel tiles - reuse server configuration to match CUTLASS copy plans
   using HeadDimLatent = _128;
   using HeadDim = Shape<HeadDimLatent, _64>;
-  using TileShapeMlaFwd = Shape<_64, _64, HeadDim>;    // <M=64, N=64, K=<128,64>> (50% smaller than SM100a)
-  using TileShapeFmhaFwd = Shape<_64, _64, _128>;       // <M=64, N=64, K=128> (50% smaller than SM100a)
+  using TileShapeMlaFwd = Shape<_128, _128, HeadDim>;   // <M=128, N=128, K=<128,64>>
+  using TileShapeFmhaFwd = Shape<_128, _128, _128>;     // <M=128, N=128, K=128>
 
-  // Backward kernel tiles - FINAL: Q=128 (avoids CUTLASS issues), DVO=16 (extreme memory savings)
+  // Backward kernel tiles - align with server defaults for compatibility
   // Q=128: CUTLASS requires this for proper decomposition
   // K=128: NON-NEGOTIABLE (kernel static_assert)
-  // DQK=16: MINIMUM allowed (CUTLASS mult of 16), extreme but necessary
-  // DVO=16: MINIMUM allowed (CUTLASS mult of 16), extreme but necessary
-  using TileShapeMlaBwd = Shape<_128, _128, _16, _16>;     // <Q=128, K=128, DQK=16, DVO=16>
-  using TileShapeFmhaBwd = Shape<_128, _128, _16, _16>;    // <Q=128, K=128, DQK=16, DVO=16>
+  using TileShapeMlaBwd = Shape<_64, _128, _192, _128>;
+  using TileShapeFmhaBwd = Shape<_128, _128, _128, _128>;
 
   // Pipeline stage counts (workstation-optimized for 99KB shared memory)
   // SM100 collectives REQUIRE kStages >= 2 (misleading CUTLASS assertion message)
@@ -82,9 +76,7 @@ struct Sm120WorkstationConfig {
   static constexpr int kStagesReduceTmaStore = 1;  // Reduction/store stages (reduced from 2)
 
   // Forward mainloop thread organization
-  // Shape<_1, _1, _1> means NO DIVISION - keep tiles at hardware minimum M=64
-  // Cannot use Shape<_2, _1, _1> because 64/2=32 violates CUTLASS M≥64 constraint
-  using ThreadShape = Shape<_1, _1, _1>;
+  using ThreadShape = Shape<_2, _1, _1>;
 
   // CRITICAL MEMORY OPTIMIZATION: Force non-persistent scheduler for SM120
   // Non-persistent schedulers use UnionType (mainloop/epilogue share memory)

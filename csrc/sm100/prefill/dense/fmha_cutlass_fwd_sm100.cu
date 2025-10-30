@@ -24,6 +24,25 @@ void call_run_fmha_fwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
       std::conditional_t<IsCausalMask || (IsVarlen), Option<Tag::kIsPersistent, false_type>,
                          Option<Tag::kIsPersistent, true_type>>;
 
+#ifdef FLASH_MLA_FORCE_FALLBACK
+  const auto stream = c10::cuda::getCurrentCUDAStream();
+  flash::detail::run_fmha_fwd_sm120_fallback<IsVarlen, IsMla, Mask>(
+      stream,
+      q.scalar_type(),
+      o.scalar_type(),
+      q,
+      k,
+      v,
+      o,
+      lse,
+      softmax_scale,
+      cumulative_seqlen_q,
+      cumulative_seqlen_kv,
+      max_seqlen_q,
+      max_seqlen_kv);
+  return;
+#else
+
   // Dual dispatch: Runtime architecture detection for SM100a (server) vs SM120 (workstation)
   int device;
   cudaGetDevice(&device);
@@ -52,6 +71,7 @@ void call_run_fmha_fwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
   else {
     FLASH_MLA_ASSERT(false && "Unsupported SM architecture: requires SM100a or SM120");
   }
+#endif
 }
 
 void FMHACutlassSM100FwdRun(at::Tensor workspace_buffer, at::Tensor q, at::Tensor k,

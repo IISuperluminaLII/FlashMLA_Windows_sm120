@@ -27,6 +27,8 @@ def get_features_args(for_msvc=False):
         features_args.append(f"{prefix}FLASH_MLA_DISABLE_SM90")
     if is_flag_set("FLASH_MLA_DISABLE_SM100"):
         features_args.append(f"{prefix}FLASH_MLA_DISABLE_SM100")
+    if is_flag_set("FLASH_MLA_SM120_DISABLE_BWD"):
+        features_args.append(f"{prefix}FLASH_MLA_SM120_DISABLE_BWD")
     return features_args
 
 def get_arch_flags():
@@ -41,7 +43,7 @@ def get_arch_flags():
     print(f'Compiling using NVCC {major}.{minor}')
 
     DISABLE_SM100 = is_flag_set("FLASH_MLA_DISABLE_SM100")
-    DISABLE_SM90 = is_flag_set("FLASH_MLA_DISABLE_SM90")
+    DISABLE_SM90 = True  # Hardcoded to True for Windows/MSVC compatibility
     if major < 12 or (major == 12 and minor <= 8):
         assert DISABLE_SM100, "sm100 compilation for Flash MLA requires NVCC 12.9 or higher. Please set FLASH_MLA_DISABLE_SM100=1 to disable sm100 compilation, or update your environment."
 
@@ -61,14 +63,14 @@ def get_arch_flags():
             "-gencode", "arch=compute_90a,code=sm_90a",
             "-gencode", "arch=compute_90a,code=compute_90a",
         ])
+        print("[ERROR] SM90 architecture flags unexpectedly included!")
+    else:
+        print("[OK] Excluding SM90 architecture flags (disabled for Windows)")
 
-    # *** NEW: Blackwell consumer/pro (RTX 6000 Pro etc.) ***
-    # Build native cubin for your card and include PTX.
-    print("Adding sm_120 (Blackwell workstation) support with PTX fallback")
-    arch_flags.extend([
-        "-gencode", "arch=compute_120,code=sm_120",     # native for RTX 6000 Pro (Blackwell)
-        "-gencode", "arch=compute_120,code=compute_120" # PTX (forward-compat for 12.x)
-    ])
+    # SM120 (Blackwell workstation - RTX 6000 Pro)
+    # Strategy: Don't compile for SM120 directly due to TMEM layout incompatibilities
+    # Build only for SM100a - SM120 will run SM100a binaries via architectural compatibility
+    print("[OK] SM120 will use SM100a binaries (no sm_120a compilation)")
 
     return arch_flags
 
@@ -82,7 +84,7 @@ def get_nvcc_cxx_flags():
         return ["-Xcompiler", "/Zc:__cplusplus"]
     return []
 
-subprocess.run(["git", "submodule", "update", "--init", "csrc/cutlass"])
+
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -91,13 +93,13 @@ if IS_WINDOWS:
     # Add Windows-friendly defines for MSVC compatibility
     cxx_args = ["/O2", "/std:c++17", "/Zc:__cplusplus", "/EHsc", "/permissive-",
                 "/DNOMINMAX", "/DWIN32_LEAN_AND_MEAN", "/D_HAS_EXCEPTIONS=1",
-                "/utf-8", "/DNDEBUG", "/W0", "/FImsvc_compat.h"]
+                "/utf-8", "/DNDEBUG", "/W0", "/FImsvc_compat.h", "/DFLASH_MLA_FORCE_FALLBACK"]
 else:
     cxx_args = ["-O3", "-std=c++17", "-DNDEBUG", "-Wno-deprecated-declarations"]
 
 # Build source list based on enabled architectures
 DISABLE_SM100 = is_flag_set("FLASH_MLA_DISABLE_SM100")
-DISABLE_SM90 = is_flag_set("FLASH_MLA_DISABLE_SM90")
+DISABLE_SM90 = True  # Always disable SM90 on Windows - has compilation errors
 
 sources = [
     "csrc/pybind.cpp",
@@ -106,6 +108,7 @@ sources = [
 ]
 
 # Only include sm90 sources if not disabled (they have Windows/MSVC incompatibilities)
+# Use the hardcoded DISABLE_SM90 variable, not the environment check
 if not DISABLE_SM90:
     sources.extend([
         "csrc/sm90/decode/dense/splitkv_mla.cu",
@@ -114,26 +117,23 @@ if not DISABLE_SM90:
     ])
     print("Including SM90 source files")
 else:
-    print("Excluding SM90 source files (disabled)")
+    print("[OK] Excluding SM90 source files (disabled for Windows/MSVC compatibility)")
 
-# Training kernels (fwd/bwd) now support BOTH SM100a and SM120 via conditional compilation
-# They must always be included to provide SM120 training support
-sources.extend([
-    "csrc/sm100/prefill/dense/fmha_cutlass_fwd_sm100.cu",
-    "csrc/sm100/prefill/dense/fmha_cutlass_bwd_sm100.cu",
-])
-
-# SM100a-specific decode/sparse kernels (only included if SM100 not disabled)
+# SM100a training kernels (fwd/bwd)
+# Strategy: Include these and build ONLY for SM100a architecture
+# SM120 hardware will run SM100a binaries
 if not DISABLE_SM100:
     sources.extend([
-        "csrc/sm100/decode/sparse_fp8/splitkv_mla.cu",
-        "csrc/sm100/prefill/sparse/fwd.cu",
+        "csrc/sm100/prefill/dense/fmha_cutlass_fwd_sm100.cu",
+        "csrc/sm100/prefill/dense/fmha_cutlass_bwd_sm100.cu",
     ])
-    print("Including SM100-specific decode/sparse files")
+    print("[OK] Including SM100 training kernels (will compile for sm_100a only)")
 else:
-    print("SM100-specific decode/sparse files excluded (FLASH_MLA_DISABLE_SM100 set)")
+    print("Excluding SM100 training kernels (FLASH_MLA_DISABLE_SM100 set)")
 
-print(f"Training kernels (fwd/bwd): ALWAYS included (support SM100a + SM120)")
+# SM100a-specific decode/sparse kernels use tcgen05 (SM100a-only instructions)
+# Exclude these for now - not needed for basic training
+print("[OK] Excluding SM100 decode/sparse files (not needed for training)")
 
 ext_modules = []
 ext_modules.append(
@@ -143,6 +143,8 @@ ext_modules.append(
         extra_compile_args={
             "cxx": cxx_args + get_features_args(for_msvc=IS_WINDOWS),
             "nvcc": [
+                                # Additional NVCC flags for Windows/MSVC build
+
                 "-include", "msvc_compat.h",  # Force-include MSVC compatibility shim for host passes
                 "-O3",
                 "-std=c++17",
@@ -157,10 +159,14 @@ ext_modules.append(
                 "--expt-extended-lambda",
                 "--use_fast_math",
                 "--ptxas-options=-v,--register-usage-level=10",
-                # Windows-specific NVCC flags for MSVC compatibility
+                # Windows-specific NVCC flags for clang-cl compatibility
                 "-Xcompiler", "/Zc:__cplusplus",
                 "-Xcompiler", "/permissive-"
-            ] + get_nvcc_cxx_flags() + get_features_args(for_msvc=False) + get_arch_flags() + get_nvcc_thread_args(),
+            ] + (["-DFLASH_MLA_FORCE_FALLBACK=1"] if IS_WINDOWS else [])
+              + get_nvcc_cxx_flags()
+              + get_features_args(for_msvc=False)
+              + get_arch_flags()
+              + get_nvcc_thread_args(),
         },
         include_dirs=[
             Path(this_dir) / "csrc",

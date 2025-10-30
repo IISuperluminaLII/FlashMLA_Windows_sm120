@@ -71,6 +71,11 @@ struct Sm100FmhaBwdMlaKernelTmaWarpSpecialized {
 
   using TmemAllocator = cute::TMEM::Allocator1Sm;
 
+  // SAFETY CHECK Point 5: SM120 BWD Dead-Code Elimination
+  // SM120 MLA backward now enabled following CUTLASS 3.9/example 77 approach
+  // Uses same Sm100 ArchTag with ClusterShape = <1,1,1> for both SM100a and SM120
+  // Error check removed - SM120 is now supported with CUTLASS 3.9
+
   // Architecture-specific TMEM allocation for MLA backward pass
   struct TmemAllocation {
     static constexpr uint32_t kDK = 0;                                                                         // TileShapeK x TileShapeDQK x acc

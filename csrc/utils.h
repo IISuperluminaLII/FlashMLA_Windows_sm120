@@ -51,10 +51,19 @@ do { \
 #else
 
 // We define the following macros to detect the CUDA architecture, so that we can enable/disable certains kernels that depends on specific architectures.
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ == 1000)
-#define IS_SM100 1
+// SM120 (Blackwell GeForce) uses same kernels as SM100 (Blackwell datacenter) with modifications
+// Based on vLLM PR#17280 and community fixes for RTX 50 series support
+#if defined(__CUDA_ARCH__) && ((__CUDA_ARCH__ == 1000) || (__CUDA_ARCH__ == 1200))
+#define IS_SM100 1  // Enable SM100 kernels for both SM100a and SM120
 #else
 #define IS_SM100 0
+#endif
+
+// Separate SM120 detection for GeForce-specific handling
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ == 1200)
+#define IS_SM120 1
+#else
+#define IS_SM120 0
 #endif
 
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ == 900)

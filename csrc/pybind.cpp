@@ -36,6 +36,17 @@ namespace py = pybind11;
 // Dense prefill interface supports BOTH SM100a and SM120
 #include "sm100/prefill/dense/interface.h"
 
+// Provide stub implementation when backward is disabled
+#ifdef FLASH_MLA_SM120_DISABLE_BWD
+void FMHACutlassSM100BwdRun(at::Tensor workspace_buffer, at::Tensor d_o, at::Tensor q, at::Tensor k,
+                            at::Tensor v, at::Tensor o, at::Tensor lse,
+                            at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv,
+                            at::Tensor dq, at::Tensor dk, at::Tensor dv,
+                            int mask_mode_code, float softmax_scale, int max_seqlen_q, int max_seqlen_kv, bool is_varlen) {
+    TORCH_CHECK(false, "SM120 backward pass is disabled in this build. Please rebuild without FLASH_MLA_SM120_DISABLE_BWD flag to enable backward pass.");
+}
+#endif
+
 #ifndef FLASH_MLA_DISABLE_SM100
 #include "sm100/decode/sparse_fp8/splitkv_mla.h"
 #include "sm100/prefill/sparse/fwd.h"
@@ -371,6 +382,9 @@ fwd_kvcache_mla(
 #endif
     }
 
+#ifdef FLASH_MLA_FORCE_FALLBACK
+    TORCH_CHECK(false, "FlashMLA sparse decode kernels are disabled in the fallback-only Windows build.");
+#else
 #ifndef FLASH_MLA_DISABLE_SM90
     if (arch.is_sm90()) {
         if (is_sparse_attn) {
@@ -406,6 +420,7 @@ fwd_kvcache_mla(
     {
         TORCH_CHECK(false, "Unsupported GPU architecture");
     }
+#endif
 
     if (q_dtype == c10::kBFloat16) {
         run_flash_mla_combine_kernel<cutlass::bfloat16_t>(params, stream);
@@ -498,6 +513,9 @@ std::vector<at::Tensor> sparse_prefill_fwd(
         at::cuda::getCurrentCUDAStream().stream()
     };
 
+#ifdef FLASH_MLA_FORCE_FALLBACK
+    TORCH_CHECK(false, "FlashMLA dense prefill kernels are disabled in the fallback-only Windows build.");
+#else
 #ifndef FLASH_MLA_DISABLE_SM90
     if (is_sm90) {
         sm90::run_fwd_kernel(params);
@@ -511,6 +529,7 @@ std::vector<at::Tensor> sparse_prefill_fwd(
     {
         TORCH_CHECK(false, "Unknown architecture or architecture not supported in this build");
     }
+#endif
 
     return {out, max_logits, lse};
 }

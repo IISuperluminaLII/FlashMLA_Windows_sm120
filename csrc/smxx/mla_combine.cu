@@ -4,6 +4,8 @@
 #include <cutlass/cutlass.h>
 #include <cutlass/array.h>
 #include <cutlass/numeric_types.h>
+#include <math_constants.h>   // CUDART_INF_F
+#include <cmath>              // isnan, isinf
 
 #include "params.h"
 #include "utils.h"
@@ -58,7 +60,7 @@ flash_fwd_mla_combine_kernel(__grid_constant__ const DecodingParams params) {
         for (int elem_idx = threadIdx.x; elem_idx < my_num_splits*BLOCK_SIZE_M; elem_idx += NUM_THREADS) {
             int split_idx = elem_idx / BLOCK_SIZE_M;
             int seq_idx = elem_idx % BLOCK_SIZE_M;
-            sLseScale(seq_idx, split_idx) = seq_idx < num_cur_valid_q_seqs ? gLseAccum(split_idx, seq_idx) : -INFINITY;
+            sLseScale(seq_idx, split_idx) = seq_idx < num_cur_valid_q_seqs ? gLseAccum(split_idx, seq_idx) : -CUDART_INF_F;
         }
         __syncthreads();
     }
@@ -73,17 +75,17 @@ flash_fwd_mla_combine_kernel(__grid_constant__ const DecodingParams params) {
         CUTLASS_PRAGMA_UNROLL
         for (int i = 0; i < NUM_LSE_PER_THREAD; ++i) {
             const int split_idx = i*32 + lane_idx;
-            local_lse[i] = split_idx < my_num_splits ? sLseScale(warp_idx, split_idx) : -INFINITY;
+            local_lse[i] = split_idx < my_num_splits ? sLseScale(warp_idx, split_idx) : -CUDART_INF_F;
         }
 
-        float max_lse = -INFINITY;
+        float max_lse = -CUDART_INF_F;
         CUTLASS_PRAGMA_UNROLL
         for (int i = 0; i < NUM_LSE_PER_THREAD; ++i)
             max_lse = max(max_lse, local_lse[i]);
         CUTLASS_PRAGMA_UNROLL
         for (int offset = 16; offset >= 1; offset /= 2)
             max_lse = max(max_lse, __shfl_xor_sync(uint32_t(-1), max_lse, offset));
-        max_lse = max_lse == -INFINITY ? 0.0f : max_lse;  // In case all local LSEs are -inf
+        max_lse = (isinf(max_lse) && max_lse < 0.f) ? 0.0f : max_lse;  // In case all local LSEs are -inf
 
         float sum_lse = 0;
         CUTLASS_PRAGMA_UNROLL
@@ -93,7 +95,7 @@ flash_fwd_mla_combine_kernel(__grid_constant__ const DecodingParams params) {
         for (int offset = 16; offset >= 1; offset /= 2)
             sum_lse = sum_lse + __shfl_xor_sync(uint32_t(-1), sum_lse, offset);
 
-        float global_lse = (sum_lse == 0.f || sum_lse != sum_lse) ? INFINITY : log2f(sum_lse) + max_lse;
+        float global_lse = (sum_lse == 0.f || isnan(sum_lse)) ? CUDART_INF_F : log2f(sum_lse) + max_lse;
         if (lane_idx == 0)
             gLse(warp_idx) = global_lse / (float)M_LOG2E;
 
@@ -158,15 +160,6 @@ flash_fwd_mla_combine_kernel(__grid_constant__ const DecodingParams params) {
             return __VA_ARGS__();                          \
         } else if (NUM_SPLITS <= 64) {                     \
             constexpr static int NAME = 64;                \
-            return __VA_ARGS__();                          \
-        } else if (NUM_SPLITS <= 96) {                     \
-            constexpr static int NAME = 96;                \
-            return __VA_ARGS__();                          \
-        } else if (NUM_SPLITS <= 128) {                    \
-            constexpr static int NAME = 128;               \
-            return __VA_ARGS__();                          \
-        } else if (NUM_SPLITS <= 160) {                    \
-            constexpr static int NAME = 160;               \
             return __VA_ARGS__();                          \
         } else {                                           \
             FLASH_ASSERT(false);                           \

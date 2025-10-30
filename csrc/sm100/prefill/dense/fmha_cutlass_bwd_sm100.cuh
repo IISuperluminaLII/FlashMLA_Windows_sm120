@@ -48,6 +48,7 @@
 #include "common/utils.hpp"
 #include "collective/fmha_fusion.hpp"
 #include "device/fmha_device_bwd.hpp"
+#include "sm120_fallback_utils.h"
 
 using namespace cute;
 using namespace cutlass::fmha::kernel;
@@ -198,8 +199,28 @@ void run_fmha_bwd(at::Tensor workspace_buffer, at::Tensor d_o, at::Tensor q, at:
                   at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv,
                   at::Tensor dq, at::Tensor dk, at::Tensor dv,
                   float softmax_scale, int max_seqlen_q, int total_seqlen_kv) {
-  BwdRunner<KernelTraits, DType, kIsVarlen, kIsMla, TileShape, Mask>::run(workspace_buffer, d_o, q, k, v, o, lse,
-                                                     cumulative_seqlen_q, cumulative_seqlen_kv,
-                                                     dq, dk, dv,
-                                                     softmax_scale, max_seqlen_q, total_seqlen_kv);
+  if constexpr (std::is_same_v<typename KernelTraits::ArchTag, cutlass::arch::Sm120>) {
+    const auto stream = c10::cuda::getCurrentCUDAStream();
+    flash::detail::run_fmha_bwd_sm120_fallback<kIsVarlen, kIsMla, Mask>(
+        stream,
+        d_o,
+        q,
+        k,
+        v,
+        o,
+        lse,
+        dq,
+        dk,
+        dv,
+        cumulative_seqlen_q,
+        cumulative_seqlen_kv,
+        softmax_scale,
+        max_seqlen_q,
+        total_seqlen_kv);
+    return;
+  } else {
+    BwdRunner<KernelTraits, DType, kIsVarlen, kIsMla, TileShape, Mask>::run(
+        workspace_buffer, d_o, q, k, v, o, lse, cumulative_seqlen_q, cumulative_seqlen_kv, dq, dk, dv,
+        softmax_scale, max_seqlen_q, total_seqlen_kv);
+  }
 }

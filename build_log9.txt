@@ -1,0 +1,202 @@
+Build configuration:
+FLASH_MLA_DISABLE_SM100=1
+FLASH_MLA_DISABLE_SM90=1
+FLASH_MLA_SM120_DISABLE_BWD=1
+
+Excluding SM90 source files (disabled)
+Excluding backward kernel (FLASH_MLA_SM120_DISABLE_BWD set)
+SM100-specific decode/sparse files excluded (FLASH_MLA_DISABLE_SM100 set)
+Training kernels (fwd/bwd): ALWAYS included (support SM100a + SM120)
+Compiling using NVCC 12.9
+Adding sm_120 (Blackwell workstation) support with PTX fallback
+running clean
+removing 'build\temp.win-amd64-cpython-312' (and everything under it)
+'build\lib.win-amd64-cpython-312' does not exist -- can't clean it
+'build\bdist.win-amd64' does not exist -- can't clean it
+'build\scripts-3.12' does not exist -- can't clean it
+removing 'build'
+Excluding SM90 source files (disabled)
+Excluding backward kernel (FLASH_MLA_SM120_DISABLE_BWD set)
+SM100-specific decode/sparse files excluded (FLASH_MLA_DISABLE_SM100 set)
+Training kernels (fwd/bwd): ALWAYS included (support SM100a + SM120)
+Compiling using NVCC 12.9
+Adding sm_120 (Blackwell workstation) support with PTX fallback
+running build_ext
+W1029 20:57:22.631000 22992 site-packages\torch\utils\cpp_extension.py:480] Error checking compiler version for cl: [WinError 2] The system cannot find the file specified
+W1029 20:57:22.639000 22992 site-packages\torch\utils\cpp_extension.py:521] The detected CUDA version (12.9) has a minor version mismatch with the version that was used to compile PyTorch (12.8). Most likely this shouldn't be a problem.
+building 'flash_mla.cuda' extension
+creating C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc
+creating C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\sm100\prefill\dense
+creating C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\smxx
+W1029 20:57:24.331000 22992 site-packages\torch\utils\cpp_extension.py:480] Error checking compiler version for cl: [WinError 2] The system cannot find the file specified
+C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\_msvccompiler.py:12: UserWarning: _get_vc_env is private; find an alternative (pypa/distutils#340)
+  warnings.warn(
+[1/4] C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc --generate-dependencies-with-compile --dependency-output C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\smxx\get_mla_metadata.obj.d -std=c++17 -Xcompiler /MD -Xcompiler /wd4819 -Xcompiler /wd4251 -Xcompiler /wd4244 -Xcompiler /wd4267 -Xcompiler /wd4275 -Xcompiler /wd4018 -Xcompiler /wd4190 -Xcompiler /wd4624 -Xcompiler /wd4067 -Xcompiler /wd4068 -Xcompiler /EHsc --use-local-env -Xcudafe --diag_suppress=base_class_has_different_dll_interface -Xcudafe --diag_suppress=field_without_dll_interface -Xcudafe --diag_suppress=dll_interface_conflict_none_assumed -Xcudafe --diag_suppress=dll_interface_conflict_dllexport_assumed -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm90 -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\include -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\tools\util\include "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include\torch\csrc\api\include" "-IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" "-IC:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\winrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\cppwinrt" "-IC:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -c C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\smxx\get_mla_metadata.cu -o C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\smxx\get_mla_metadata.obj -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -include msvc_compat.h -O3 -std=c++17 -DNDEBUG -D_USE_MATH_DEFINES -Wno-deprecated-declarations -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ -U__CUDA_NO_BFLOAT16_CONVERSIONS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math --ptxas-options=-v,--register-usage-level=10 -Xcompiler /Zc:__cplusplus -Xcompiler /permissive- -Xcompiler /Zc:__cplusplus -DFLASH_MLA_DISABLE_SM90 -DFLASH_MLA_DISABLE_SM100 -DFLASH_MLA_SM120_DISABLE_BWD -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --threads 32 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+get_mla_metadata.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+get_mla_metadata.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+get_mla_metadata.cu
+ptxas info    : 191 bytes gmem
+ptxas info    : Compiling entry function '_Z23get_mla_metadata_kernel25GetDecodingMetadataParams' for 'sm_120'
+ptxas info    : Function properties for _Z23get_mla_metadata_kernel25GetDecodingMetadataParams
+    24 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 0 barriers, 24 bytes cumulative stack size
+ptxas info    : Compile time = 0.000 ms
+tmpxft_000027dc_00000000-7_get_mla_metadata.cudafe1.cpp
+[2/4] C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc --generate-dependencies-with-compile --dependency-output C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\smxx\mla_combine.obj.d -std=c++17 -Xcompiler /MD -Xcompiler /wd4819 -Xcompiler /wd4251 -Xcompiler /wd4244 -Xcompiler /wd4267 -Xcompiler /wd4275 -Xcompiler /wd4018 -Xcompiler /wd4190 -Xcompiler /wd4624 -Xcompiler /wd4067 -Xcompiler /wd4068 -Xcompiler /EHsc --use-local-env -Xcudafe --diag_suppress=base_class_has_different_dll_interface -Xcudafe --diag_suppress=field_without_dll_interface -Xcudafe --diag_suppress=dll_interface_conflict_none_assumed -Xcudafe --diag_suppress=dll_interface_conflict_dllexport_assumed -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm90 -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\include -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\tools\util\include "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include\torch\csrc\api\include" "-IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" "-IC:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\winrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\cppwinrt" "-IC:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -c C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\smxx\mla_combine.cu -o C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\smxx\mla_combine.obj -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -include msvc_compat.h -O3 -std=c++17 -DNDEBUG -D_USE_MATH_DEFINES -Wno-deprecated-declarations -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ -U__CUDA_NO_BFLOAT16_CONVERSIONS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math --ptxas-options=-v,--register-usage-level=10 -Xcompiler /Zc:__cplusplus -Xcompiler /permissive- -Xcompiler /Zc:__cplusplus -DFLASH_MLA_DISABLE_SM90 -DFLASH_MLA_DISABLE_SM100 -DFLASH_MLA_SM120_DISABLE_BWD -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --threads 32 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+mla_combine.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+mla_combine.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+mla_combine.cu
+ptxas info    : 152 bytes gmem
+ptxas info    : Compiling entry function '_Z28flash_fwd_mla_combine_kernelIN7cutlass6half_tELi512ELi8ELi64ELi256EEv14DecodingParams' for 'sm_120'
+ptxas info    : Function properties for _Z28flash_fwd_mla_combine_kernelIN7cutlass6half_tELi512ELi8ELi64ELi256EEv14DecodingParams
+    24 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 1 barriers, 24 bytes cumulative stack size
+ptxas info    : Compile time = 0.000 ms
+ptxas info    : Compiling entry function '_Z28flash_fwd_mla_combine_kernelIN7cutlass6half_tELi512ELi8ELi32ELi256EEv14DecodingParams' for 'sm_120'
+ptxas info    : Function properties for _Z28flash_fwd_mla_combine_kernelIN7cutlass6half_tELi512ELi8ELi32ELi256EEv14DecodingParams
+    24 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 1 barriers, 24 bytes cumulative stack size
+ptxas info    : Compile time = 0.000 ms
+ptxas info    : Compiling entry function '_Z28flash_fwd_mla_combine_kernelIN7cutlass10bfloat16_tELi512ELi8ELi64ELi256EEv14DecodingParams' for 'sm_120'
+ptxas info    : Function properties for _Z28flash_fwd_mla_combine_kernelIN7cutlass10bfloat16_tELi512ELi8ELi64ELi256EEv14DecodingParams
+    24 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 1 barriers, 24 bytes cumulative stack size
+ptxas info    : Compile time = 0.000 ms
+ptxas info    : Compiling entry function '_Z28flash_fwd_mla_combine_kernelIN7cutlass10bfloat16_tELi512ELi8ELi32ELi256EEv14DecodingParams' for 'sm_120'
+ptxas info    : Function properties for _Z28flash_fwd_mla_combine_kernelIN7cutlass10bfloat16_tELi512ELi8ELi32ELi256EEv14DecodingParams
+    24 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 1 barriers, 24 bytes cumulative stack size
+ptxas info    : Compile time = 0.000 ms
+tmpxft_00006a74_00000000-7_mla_combine.cudafe1.cpp
+[3/4] cl /showIncludes /nologo /O2 /W3 /GL /DNDEBUG /MD -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm90 -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\include -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\tools\util\include "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include\torch\csrc\api\include" "-IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" "-IC:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\winrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\cppwinrt" "-IC:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" /MD /wd4819 /wd4251 /wd4244 /wd4267 /wd4275 /wd4018 /wd4190 /wd4624 /wd4067 /wd4068 /EHsc -c C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\pybind.cpp /FoC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\pybind.obj /O2 /std:c++17 /Zc:__cplusplus /EHsc /permissive- /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_HAS_EXCEPTIONS=1 /utf-8 /DNDEBUG /W0 /FImsvc_compat.h /DFLASH_MLA_DISABLE_SM90 /DFLASH_MLA_DISABLE_SM100 /DFLASH_MLA_SM120_DISABLE_BWD -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+cl : Command line warning D9025 : overriding '/W3' with '/W0'
+[4/4] C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc --generate-dependencies-with-compile --dependency-output C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.obj.d -std=c++17 -Xcompiler /MD -Xcompiler /wd4819 -Xcompiler /wd4251 -Xcompiler /wd4244 -Xcompiler /wd4267 -Xcompiler /wd4275 -Xcompiler /wd4018 -Xcompiler /wd4190 -Xcompiler /wd4624 -Xcompiler /wd4067 -Xcompiler /wd4068 -Xcompiler /EHsc --use-local-env -Xcudafe --diag_suppress=base_class_has_different_dll_interface -Xcudafe --diag_suppress=field_without_dll_interface -Xcudafe --diag_suppress=dll_interface_conflict_none_assumed -Xcudafe --diag_suppress=dll_interface_conflict_dllexport_assumed -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm90 -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\include -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\tools\util\include "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include\torch\csrc\api\include" "-IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" "-IC:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\winrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\cppwinrt" "-IC:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -c C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.cu -o C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.obj -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -include msvc_compat.h -O3 -std=c++17 -DNDEBUG -D_USE_MATH_DEFINES -Wno-deprecated-declarations -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ -U__CUDA_NO_BFLOAT16_CONVERSIONS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math --ptxas-options=-v,--register-usage-level=10 -Xcompiler /Zc:__cplusplus -Xcompiler /permissive- -Xcompiler /Zc:__cplusplus -DFLASH_MLA_DISABLE_SM90 -DFLASH_MLA_DISABLE_SM100 -DFLASH_MLA_SM120_DISABLE_BWD -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --threads 32 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+FAILED: [code=4294967295] C:/PyCharmProjectsSpaceConflict/150BLLM/external/FlashMLA/build/temp.win-amd64-cpython-312/Release/csrc/sm100/prefill/dense/fmha_cutlass_fwd_sm100.obj 
+C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc --generate-dependencies-with-compile --dependency-output C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.obj.d -std=c++17 -Xcompiler /MD -Xcompiler /wd4819 -Xcompiler /wd4251 -Xcompiler /wd4244 -Xcompiler /wd4267 -Xcompiler /wd4275 -Xcompiler /wd4018 -Xcompiler /wd4190 -Xcompiler /wd4624 -Xcompiler /wd4067 -Xcompiler /wd4068 -Xcompiler /EHsc --use-local-env -Xcudafe --diag_suppress=base_class_has_different_dll_interface -Xcudafe --diag_suppress=field_without_dll_interface -Xcudafe --diag_suppress=dll_interface_conflict_none_assumed -Xcudafe --diag_suppress=dll_interface_conflict_dllexport_assumed -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm90 -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\include -IC:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\cutlass\tools\util\include "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\include\torch\csrc\api\include" "-IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\include" "-IC:\Users\Shashank Murthy\.conda\envs\150BLLM\Include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include" "-IC:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\VS\include" "-IC:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\um" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\shared" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\winrt" "-IC:\Program Files (x86)\Windows Kits\10\\include\10.0.26100.0\\cppwinrt" "-IC:\Program Files (x86)\Windows Kits\NETFXSDK\4.8\include\um" -c C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.cu -o C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\build\temp.win-amd64-cpython-312\Release\csrc\sm100\prefill\dense\fmha_cutlass_fwd_sm100.obj -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -include msvc_compat.h -O3 -std=c++17 -DNDEBUG -D_USE_MATH_DEFINES -Wno-deprecated-declarations -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__ -U__CUDA_NO_BFLOAT16_CONVERSIONS__ --expt-relaxed-constexpr --expt-extended-lambda --use_fast_math --ptxas-options=-v,--register-usage-level=10 -Xcompiler /Zc:__cplusplus -Xcompiler /permissive- -Xcompiler /Zc:__cplusplus -DFLASH_MLA_DISABLE_SM90 -DFLASH_MLA_DISABLE_SM100 -DFLASH_MLA_SM120_DISABLE_BWD -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --threads 32 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+fmha_cutlass_fwd_sm100.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+fmha_cutlass_fwd_sm100.cu
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_OPERATORS__' with '/U__CUDA_NO_HALF_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF_CONVERSIONS__' with '/U__CUDA_NO_HALF_CONVERSIONS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_HALF2_OPERATORS__' with '/U__CUDA_NO_HALF2_OPERATORS__'
+cl : Command line warning D9025 : overriding '/D__CUDA_NO_BFLOAT16_CONVERSIONS__' with '/U__CUDA_NO_BFLOAT16_CONVERSIONS__'
+fmha_cutlass_fwd_sm100.cu
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/fmha_fusion.hpp(129): warning #221-D: floating-point value does not fit in required floating-point type
+          acc_qk(i) = -((float)(1e+300));
+                        ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/fmha_fusion.hpp(181): warning #221-D: floating-point value does not fit in required floating-point type
+          acc_qk(i) = -((float)(1e+300));
+                        ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/fmha_fusion.hpp(263): warning #221-D: floating-point value does not fit in required floating-point type
+            acc_qk(i) = -((float)(1e+300));
+                          ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/fmha_fusion.hpp(272): warning #221-D: floating-point value does not fit in required floating-point type
+            acc_qk(i) = -((float)(1e+300));
+                          ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/fmha_fusion.hpp(309): warning #221-D: floating-point value does not fit in required floating-point type
+          acc_qk(i) = -((float)(1e+300));
+                        ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_fwd_mainloop_tma_warpspecialized.hpp(594): warning #221-D: floating-point value does not fit in required floating-point type
+      ElementQK row_max_safe = row_max == -((float)(1e+300)) ? 0 : row_max;
+                                            ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_fwd_mainloop_tma_warpspecialized.hpp(725): warning #221-D: floating-point value does not fit in required floating-point type
+      ElementQK row_max = -((float)(1e+300));
+                            ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_fwd_mainloop_tma_warpspecialized.hpp(1155): warning #221-D: floating-point value does not fit in required floating-point type
+      float lse = -((float)(1e+300));
+                    ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_mla_fwd_mainloop_tma_warpspecialized.hpp(618): warning #221-D: floating-point value does not fit in required floating-point type
+      ElementQK row_max_safe = row_max == -((float)(1e+300)) ? 0 : row_max;
+                                            ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_mla_fwd_mainloop_tma_warpspecialized.hpp(750): warning #221-D: floating-point value does not fit in required floating-point type
+      ElementQK row_max = -((float)(1e+300));
+                            ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\collective/sm100_fmha_mla_fwd_mainloop_tma_warpspecialized.hpp(1165): warning #221-D: floating-point value does not fit in required floating-point type
+      float lse = -((float)(1e+300));
+                    ^
+
+C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\csrc\sm100\prefill\dense\kernel/sm100_fmha_fwd_kernel_tma_warpspecialized.hpp(655): error: identifier "role" is undefined
+      if (role == WarpRole::Empty) {
+          ^
+
+1 error detected in the compilation of "C:/PyCharmProjectsSpaceConflict/150BLLM/external/FlashMLA/csrc/sm100/prefill/dense/fmha_cutlass_fwd_sm100.cu".
+ninja: build stopped: subcommand failed.
+Traceback (most recent call last):
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\utils\cpp_extension.py", line 2597, in _run_ninja_build
+    subprocess.run(
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status 4294967295.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\PyCharmProjectsSpaceConflict\150BLLM\external\FlashMLA\setup.py", line 192, in <module>
+    setup(
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\__init__.py", line 115, in setup
+    return distutils.core.setup(**attrs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\core.py", line 186, in setup
+    return run_commands(dist)
+           ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\core.py", line 202, in run_commands
+    dist.run_commands()
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\dist.py", line 1002, in run_commands
+    self.run_command(cmd)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\dist.py", line 1102, in run_command
+    super().run_command(command)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\dist.py", line 1021, in run_command
+    cmd_obj.run()
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\command\build_ext.py", line 96, in run
+    _build_ext.run(self)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\command\build_ext.py", line 368, in run
+    self.build_extensions()
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\utils\cpp_extension.py", line 1082, in build_extensions
+    build_ext.build_extensions(self)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\command\build_ext.py", line 484, in build_extensions
+    self._build_extensions_serial()
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\command\build_ext.py", line 510, in _build_extensions_serial
+    self.build_extension(ext)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\command\build_ext.py", line 261, in build_extension
+    _build_ext.build_extension(self, ext)
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\setuptools\_distutils\command\build_ext.py", line 565, in build_extension
+    objects = self.compiler.compile(
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\utils\cpp_extension.py", line 1051, in win_wrap_ninja_compile
+    _write_ninja_file_and_compile_objects(
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\utils\cpp_extension.py", line 2223, in _write_ninja_file_and_compile_objects
+    _run_ninja_build(
+  File "C:\Users\Shashank Murthy\.conda\envs\150BLLM\Lib\site-packages\torch\utils\cpp_extension.py", line 2614, in _run_ninja_build
+    raise RuntimeError(message) from e
+RuntimeError: Error compiling objects for extension

@@ -16,9 +16,30 @@ void call_run_fmha_bwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
                   at::Tensor v, at::Tensor o, at::Tensor lse,
                   at::Tensor cumulative_seqlen_q, at::Tensor cumulative_seqlen_kv,
                   at::Tensor dq, at::Tensor dk, at::Tensor dv,
-                  float softmax_scale, int max_seqlen_q, int total_seqlen_kv) {
+  float softmax_scale, int max_seqlen_q, int total_seqlen_kv) {
   static constexpr bool IsVarlen = std::is_same_v<Varlen, true_type>;
   static constexpr bool IsMla = std::is_same_v<Mla, true_type>;
+
+#ifdef FLASH_MLA_FORCE_FALLBACK
+  const auto stream = c10::cuda::getCurrentCUDAStream();
+  flash::detail::run_fmha_bwd_sm120_fallback<IsVarlen, IsMla, Mask>(
+      stream,
+      d_o,
+      q,
+      k,
+      v,
+      o,
+      lse,
+      dq,
+      dk,
+      dv,
+      cumulative_seqlen_q,
+      cumulative_seqlen_kv,
+      softmax_scale,
+      max_seqlen_q,
+      total_seqlen_kv);
+  return;
+#else
 
   // Dual dispatch: Runtime architecture detection for SM100a (server) vs SM120 (workstation)
   int device;
@@ -31,8 +52,9 @@ void call_run_fmha_bwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
 
   // SM100a = compute_100a (10.0), SM120 = compute_120 (12.0)
   // Runtime guard: Only dispatch if architecture is supported
+
   if (sm_version >= 120) {
-    // Workstation variant: SM120 (RTX 6000 Pro, RTX 50 series)
+    // SM120 (RTX 6000 Pro, RTX 50 series): 99KB shared memory, smaller epilogue tiles
     using TileShape = std::conditional_t<IsMla,
                                          typename flash::Sm120WorkstationConfig::TileShapeMlaBwd,
                                          typename flash::Sm120WorkstationConfig::TileShapeFmhaBwd>;
@@ -41,9 +63,9 @@ void call_run_fmha_bwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
         cumulative_seqlen_q, cumulative_seqlen_kv,
         dq, dk, dv,
         softmax_scale, max_seqlen_q, total_seqlen_kv);
-  }
+  } else
 #ifndef FLASH_MLA_DISABLE_SM100
-  else if (sm_version >= 100) {
+  if (sm_version >= 100) {
     // Server variant: SM100a (B100/B200)
     using TileShape = std::conditional_t<IsMla,
                                          typename flash::Sm100ServerConfig::TileShapeMlaBwd,
@@ -53,11 +75,12 @@ void call_run_fmha_bwd([[maybe_unused]] Mask mask, [[maybe_unused]] Varlen is_va
         cumulative_seqlen_q, cumulative_seqlen_kv,
         dq, dk, dv,
         softmax_scale, max_seqlen_q, total_seqlen_kv);
-  }
+  } else
 #endif
-  else {
+  {
     FLASH_MLA_ASSERT(false && "Unsupported SM architecture: requires SM100a or SM120");
   }
+#endif
 }
 
 
